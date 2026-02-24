@@ -6,24 +6,82 @@
 #include <string>
 #include <vector>
 
+/**
+ * @class SpriteSheet
+ * @brief Loads a sprite sheet image and its associated frame coordinate data.
+ *
+ * Parses either a plain text (.txt) or XML (.xml) coordinate file to extract
+ * named frame rectangles from a single sprite sheet surface. Supports
+ * retrieving individual frames or ordered animation sequences by name prefix.
+ *
+ * @par Coordinate File Formats
+ * - **Text format**: Tab-separated lines of `name x y w h`
+ * - **XML format**: Standard texture atlas XML (e.g. from TexturePacker)
+ *
+ * @par Example Usage
+ * @code
+ * SpriteSheet sheet("assets/player.png", "assets/player.txt");
+ * std::vector<SDL_Rect> walkFrames = sheet.GetAnimation("p1_walk");
+ * @endcode
+ */
 class SpriteSheet {
   public:
+    /**
+     * @brief Loads the sprite sheet image and parses its coordinate file.
+     *
+     * Automatically detects whether the coordinate file is text or XML format
+     * based on the file extension.
+     *
+     * @param imageFile  Path to the sprite sheet image (PNG, BMP, etc.).
+     * @param coordFile  Path to the coordinate file (.txt or .xml).
+     */
     SpriteSheet(const std::string& imageFile, const std::string& coordFile);
+
+    /// Frees the loaded SDL_Surface.
     ~SpriteSheet();
 
-    SDL_Rect              GetFrame(const std::string& name) const;
+    /**
+     * @brief Returns the SDL_Rect for a single named frame.
+     *
+     * @param name The exact name of the frame as defined in the coordinate file.
+     * @return SDL_Rect with the frame's position and dimensions on the sheet.
+     * @throws std::out_of_range if the frame name is not found.
+     */
+    SDL_Rect GetFrame(const std::string& name) const;
+
+    /**
+     * @brief Returns all frames whose names begin with a given prefix, in order.
+     *
+     * Useful for extracting animation sequences. For example, passing "p1_walk"
+     * returns all frames named "p1_walk1", "p1_walk2", etc. in sorted order.
+     *
+     * @param baseName Prefix to match against frame names.
+     * @return Ordered vector of SDL_Rect frames matching the prefix.
+     */
     std::vector<SDL_Rect> GetAnimation(const std::string& baseName) const;
-    SDL_Surface*          GetSurface() const {
+
+    /**
+     * @brief Returns a pointer to the raw sprite sheet SDL_Surface.
+     *
+     * The surface is owned by this SpriteSheet and must not be freed externally.
+     * @return Non-owning pointer to the sheet's SDL_Surface.
+     */
+    SDL_Surface* GetSurface() const {
         return surface;
     }
 
   private:
-    SDL_Surface*                    surface;
-    std::map<std::string, SDL_Rect> frames;
+    SDL_Surface*                    surface; ///< The loaded sprite sheet surface.
+    std::map<std::string, SDL_Rect> frames;  ///< Named frame rectangles parsed from the coord file.
 
+    /// Detects format and dispatches to the appropriate loader.
     void LoadCoordinates(const std::string& coordFile);
+
+    /// Parses a tab-separated text coordinate file.
     void LoadTextFormat(const std::string& coordFile);
+
+    /// Parses an XML texture atlas coordinate file.
     void LoadXMLFormat(const std::string& coordFile);
 };
 
-#endif
+#endif // SPRITESHEET_HPP
