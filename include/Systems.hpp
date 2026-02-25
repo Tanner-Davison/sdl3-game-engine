@@ -4,8 +4,7 @@
 #include <print>
 
 void MovementSystem(entt::registry& reg, float dt) {
-    auto view = reg.view<Transform, Velocity>(); // Gets all entities with
-                                                 // transform and velocity
+    auto view = reg.view<Transform, Velocity>();
     view.each([dt](Transform& t, Velocity& v) {
         t.x += v.dx * dt;
         t.y += v.dy * dt;
@@ -54,7 +53,6 @@ void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
             SDL_UnlockSurface(flipped);
             SDL_Rect flippedSrc = {0, 0, src.w, src.h};
             SDL_BlitSurface(flipped, &flippedSrc, screen, &dest);
-
         } else {
             SDL_BlitSurface(r.sheet, &src, screen, &dest);
         }
@@ -63,31 +61,19 @@ void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
 
 void InputSystem(entt::registry& reg, SDL_Event& e) {
     auto view = reg.view<PlayerTag, Velocity, Renderable>();
-
     view.each([&e](Velocity& v, Renderable& r) {
         if (e.type == SDL_EVENT_KEY_DOWN) {
             switch (e.key.key) {
-                case SDLK_W:
-                    v.dy = -v.speed;
-                    break;
-                case SDLK_S:
-                    v.dy = v.speed;
-                    break;
-                case SDLK_A:
-                    v.dx    = -v.speed;
-                    r.flipH = true;
-                    break;
-                case SDLK_D:
-                    v.dx    = v.speed;
-                    r.flipH = false;
-                    break;
+                case SDLK_W: v.dy = -v.speed; break;
+                case SDLK_S: v.dy =  v.speed; break;
+                case SDLK_A: v.dx = -v.speed; r.flipH = true;  break;
+                case SDLK_D: v.dx =  v.speed; r.flipH = false; break;
             }
         }
     });
 }
 
-void CollisionSystem(entt::registry& reg, float dt) {
-    // Update Invincibility timers
+void CollisionSystem(entt::registry& reg, float dt, bool& gameOver) {
     auto timerView = reg.view<InvincibilityTimer>();
     timerView.each([dt](InvincibilityTimer& inv) {
         if (inv.isInvincible) {
@@ -98,31 +84,27 @@ void CollisionSystem(entt::registry& reg, float dt) {
             }
         }
     });
-    // Check player against all enemies
+
     auto playerView = reg.view<PlayerTag, Transform, Collider, Health, InvincibilityTimer>();
     auto enemyView  = reg.view<Transform, Collider>(entt::exclude<PlayerTag>);
 
-    playerView.each([&](const Transform&    pt,
-                        const Collider&     pc,
-                        Health&             health,
-                        InvincibilityTimer& inv) {
-        if (inv.isInvincible)
-            return;
+    playerView.each([&](const Transform& pt, const Collider& pc,
+                        Health& health, InvincibilityTimer& inv) {
+        if (inv.isInvincible) return;
+
         enemyView.each([&](const Transform& et, const Collider& ec) {
-            // Simple AABB check
             bool overlapX = pt.x < et.x + ec.w && pt.x + pc.w > et.x;
             bool overlapY = pt.y < et.y + ec.h && pt.y + pc.h > et.y;
 
             if (overlapX && overlapY) {
-                health.current -= PLAYER_HIT_DAMAGE; // Declared Components.hpp
+                health.current -= PLAYER_HIT_DAMAGE;
                 inv.isInvincible = true;
                 inv.remaining    = inv.duration;
                 std::print("Player hit! Health: {}\n", health.current);
+
                 if (health.current <= 0.0f) {
                     health.current = 0.0f;
-                    std::print("Player died!\n");
-                    SDL_Event quitEvent;
-                    SDL_PushEvent(&quitEvent);
+                    gameOver       = true;
                 }
             }
         });

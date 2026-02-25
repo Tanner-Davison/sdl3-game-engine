@@ -21,14 +21,21 @@ int main(int argc, char** argv) {
         return 1;
     }
     srand(static_cast<unsigned int>(time(nullptr)));
+
     Window         GameWindow;
     entt::registry reg;
+    bool           gameOver = false;
 
     Image BackgroundImg{"game_assets/base_pack/bg_castle.png", nullptr, FitMode::COVER};
 
     Text       LocationText{"You are in space!!", 20, 20};
     ScaledText ScaledExample{"Game on!", 0, 200, GameWindow.GetWidth()};
     Text       ActionText{"Float Around", {100, 100, 100, 0}, 20, 80, 20};
+    Text       GameOverText{"Game Over!",
+                      {255, 0, 0, 255},
+                      GameWindow.GetWidth() / 2 - 100,
+                      GameWindow.GetHeight() / 2,
+                      64};
 
     // Player
     SpriteSheet           playerSheet("game_assets/base_pack/Player/p1_spritesheet.png",
@@ -36,7 +43,6 @@ int main(int argc, char** argv) {
     std::vector<SDL_Rect> walkFrames = playerSheet.GetAnimation("p1_walk");
 
     auto player = reg.create();
-
     reg.emplace<Transform>(player,
                            (float)(GameWindow.GetWidth() / 2 - 33),
                            (float)(GameWindow.GetHeight() / 2 - 46));
@@ -45,13 +51,12 @@ int main(int argc, char** argv) {
     reg.emplace<Renderable>(player, playerSheet.GetSurface(), walkFrames, false);
     reg.emplace<PlayerTag>(player);
     reg.emplace<Health>(player);
-    reg.emplace<Collider>(
-        player, PLAYER_SPRITE_WIDTH, PLAYER_SPRITE_HEIGHT); // Components.hpp
+    reg.emplace<Collider>(player, PLAYER_SPRITE_WIDTH, PLAYER_SPRITE_HEIGHT);
     reg.emplace<InvincibilityTimer>(player);
 
     // Enemies
-    SpriteSheet enemySheet("game_assets/base_pack/Enemies/enemies_spritesheet.png",
-                           "game_assets/base_pack/Enemies/enemies_spritesheet.txt");
+    SpriteSheet           enemySheet("game_assets/base_pack/Enemies/enemies_spritesheet.png",
+                                     "game_assets/base_pack/Enemies/enemies_spritesheet.txt");
     std::vector<SDL_Rect> enemyWalkFrames = enemySheet.GetAnimation("slimeWalk");
 
     for (int i = 0; i < 15; ++i) {
@@ -79,7 +84,7 @@ int main(int argc, char** argv) {
 
         while (SDL_PollEvent(&E)) {
             UIManager.HandleEvent(E);
-            InputSystem(reg, E);
+            if (!gameOver) InputSystem(reg, E);
             if (E.type == SDL_EVENT_QUIT) {
                 TTF_Quit();
                 SDL_Quit();
@@ -87,16 +92,24 @@ int main(int argc, char** argv) {
             }
         }
 
-        MovementSystem(reg, deltaTime);
-        AnimationSystem(reg, deltaTime);
-        CollisionSystem(reg, deltaTime);
+        if (!gameOver) {
+            MovementSystem(reg, deltaTime);
+            AnimationSystem(reg, deltaTime);
+            CollisionSystem(reg, deltaTime, gameOver);
+        }
 
         GameWindow.Render();
         BackgroundImg.Render(GameWindow.GetSurface());
-        LocationText.Render(GameWindow.GetSurface());
-        ScaledExample.Render(GameWindow.GetSurface());
-        ActionText.Render(GameWindow.GetSurface());
-        RenderSystem(reg, GameWindow.GetSurface());
+
+        if (gameOver) {
+            GameOverText.Render(GameWindow.GetSurface());
+        } else {
+            LocationText.Render(GameWindow.GetSurface());
+            ScaledExample.Render(GameWindow.GetSurface());
+            ActionText.Render(GameWindow.GetSurface());
+            RenderSystem(reg, GameWindow.GetSurface());
+        }
+
         GameWindow.Update();
     }
 
