@@ -1,7 +1,7 @@
 #ifndef SPRITESHEET_HPP
 #define SPRITESHEET_HPP
 
-#include <SDL.h>
+#include <SDL3/SDL.h>
 #include <map>
 #include <string>
 #include <vector>

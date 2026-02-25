@@ -1,7 +1,7 @@
 #pragma once
 #include "Text.hpp"
-#include <SDL.h>
-#include <SDL_ttf.h>
+#include <SDL3/SDL.h>
+#include <SDL3_ttf/SDL_ttf.h>
 #include <iostream>
 
 class ScaledText : public Text {
@@ -9,7 +9,7 @@ class ScaledText : public Text {
     ScaledText(std::string Content, int posX, int posY, int TargetWidth)
         : Text{Content, posX, posY, BaseFontSize} {
         int Width;
-        TTF_SizeUTF8(mFont, Content.c_str(), &Width, nullptr);
+        TTF_GetStringSize(mFont, Content.c_str(), 0, &Width, nullptr);
 
         float Ratio{static_cast<float>(TargetWidth / Width)};
         int   newFontSize = static_cast<int>(BaseFontSize * Ratio);
@@ -20,7 +20,7 @@ class ScaledText : public Text {
                              newFontSize);
         if (!mFont) {
             std::cerr << "Error reloading the font at size " << newFontSize
-                      << ": " << TTF_GetError() << "\n";
+                      << ": " << SDL_GetError() << "\n";
             return;
         }
         mFontSize = newFontSize;

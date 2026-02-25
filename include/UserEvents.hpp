@@ -1,6 +1,5 @@
 #pragma once
-#include <SDL.h>
-#include <SDL_events.h>
+#include <SDL3/SDL.h>
 
 namespace UserEvents {
 const inline Uint32 OPEN_SETTINGS{SDL_RegisterEvents(1)};

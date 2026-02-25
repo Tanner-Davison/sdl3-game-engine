@@ -1,5 +1,5 @@
 #include "SpriteSheet.hpp"
-#include <SDL_image.h>
+#include <SDL3_image/SDL_image.h>
 #include <algorithm>
 #include <fstream>
 #include <iostream>
@@ -24,7 +24,7 @@ SpriteSheet::SpriteSheet(const std::string& imageFile,
 
 SpriteSheet::~SpriteSheet() {
     if (surface) {
-        SDL_FreeSurface(surface);
+        SDL_DestroySurface(surface);
     }
 }
 

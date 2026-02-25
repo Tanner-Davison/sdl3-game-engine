@@ -1,9 +1,5 @@
 #pragma once
-#ifdef __linux__
-    #include <SDL2/SDL.h>
-#else
-    #include <SDL.h>
-#endif
+#include <SDL3/SDL.h>
 class CursorManager {
   private:
     SDL_Cursor* defaultCursor;
@@ -20,10 +16,10 @@ class CursorManager {
     }
 
     ~CursorManager() {
-        SDL_FreeCursor(defaultCursor);
-        SDL_FreeCursor(GrabCursor);
-        SDL_FreeCursor(HandCursor);
-        SDL_FreeCursor(BlockedCursor);
+        SDL_DestroyCursor(defaultCursor);
+        SDL_DestroyCursor(GrabCursor);
+        SDL_DestroyCursor(HandCursor);
+        SDL_DestroyCursor(BlockedCursor);
     }
 
     void setGrabCursor() {

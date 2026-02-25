@@ -1,8 +1,7 @@
 #pragma once
 #include "Button.hpp"
 #include "UserEvents.hpp"
-#include <SDL.h>
-#include <SDL_pixels.h>
+#include <SDL3/SDL.h>
 #include <iostream>
 
 class SettingsMenu {
@@ -37,9 +36,9 @@ class SettingsMenu {
     void Render(SDL_Surface* Surface) const {
         if (!isOpen)
             return;
-        SDL_FillRect(Surface,
-                     &Rect,
-                     SDL_MapRGB(Surface->format, Color.r, Color.g, Color.b));
+        const SDL_PixelFormatDetails* details = SDL_GetPixelFormatDetails(Surface->format);
+        SDL_FillSurfaceRect(Surface, &Rect,
+                            SDL_MapRGB(details, nullptr, Color.r, Color.g, Color.b));
     }
 
   private:

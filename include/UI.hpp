@@ -1,9 +1,5 @@
 #pragma once
-#ifdef __linux__
-    #include <SDL2/SDL.h>
-#else
-    #include <SDL.h>
-#endif
+#include <SDL3/SDL.h>
 #include "Button.hpp"
 #include "Rectangle.hpp"
 #include "SettingsMenu.hpp"

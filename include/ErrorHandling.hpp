@@ -1,9 +1,5 @@
 #pragma once
-#ifdef __linux__
-    #include <SDL2/SDL.h>
-#else
-    #include <SDL.h>
-#endif
+#include <SDL3/SDL.h>
 #include <iostream>
 
 /// Define this to enable SDL error logging to stderr.
