@@ -41,8 +41,7 @@ inline void MovementSystem(entt::registry& reg, float dt) {
                     // Horizontal walking still works
                     if (keys[SDL_SCANCODE_A])
                         v.dx = -v.speed;
-                    if (keys[SDL_SCANCODE_D])
-                        v.dx = v.speed;
+                    v.dx = v.speed;
                     if (!horizKey) {
                         v.dx -= v.dx * friction * dt;
                         if (std::abs(v.dx) < 0.5f)
@@ -361,6 +360,28 @@ inline void BoundsSystem(entt::registry& reg, int windowW, int windowH) {
         });
 }
 
+/**
+ * @brief Determines and transitions the player's active animation based on current game
+ * state.
+ *
+ * Runs every frame after movement and physics updates. Evaluates the player's
+ * @ref InvincibilityTimer, @ref GravityState, and @ref Velocity to select the
+ * appropriate animation from the entity's @ref AnimationSet, then updates
+ * @ref Renderable and @ref AnimationState only when the animation actually changes.
+ *
+ * @par Animation Priority (highest to lowest)
+ * -# **Hurt** — plays when the player is invincible after taking damage (non-looping)
+ * -# **Jump** — plays while airborne in gravity mode
+ * -# **Walk** — plays when |dx| or |dy| exceeds 1.0 px/s
+ * -# **Idle** — fallback when stationary
+ *
+ * @note Animation state is only reset when @ref AnimationID changes, preventing
+ *       per-frame resets that would stall the animation at frame 0.
+ *
+ * @param reg  The EnTT registry. Queries entities with
+ *             PlayerTag, Velocity, GravityState, Renderable,
+ *             AnimationState, AnimationSet, and InvincibilityTimer.
+ */
 inline void PlayerStateSystem(entt::registry& reg) {
     auto view = reg.view<PlayerTag,
                          Velocity,
