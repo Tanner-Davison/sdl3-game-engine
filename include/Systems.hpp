@@ -110,37 +110,108 @@ void AnimationSystem(entt::registry& reg, float dt) {
     });
 }
 
+SDL_Surface* RotateSurface90CW(SDL_Surface* src) {
+    SDL_Surface* dst = SDL_CreateSurface(src->h, src->w, src->format);
+    SDL_SetSurfaceBlendMode(dst, SDL_BLENDMODE_BLEND);
+    SDL_LockSurface(src);
+    SDL_LockSurface(dst);
+    for (int y = 0; y < src->h; y++) {
+        for (int x = 0; x < src->w; x++) {
+            Uint32* srcPx = (Uint32*)((Uint8*)src->pixels + y * src->pitch + x * 4);
+            Uint32* dstPx = (Uint32*)((Uint8*)dst->pixels + x * dst->pitch + (src->h - 1 - y) * 4);
+            *dstPx = *srcPx;
+        }
+    }
+    SDL_UnlockSurface(src);
+    SDL_UnlockSurface(dst);
+    return dst;
+}
+
+SDL_Surface* RotateSurface90CCW(SDL_Surface* src) {
+    SDL_Surface* dst = SDL_CreateSurface(src->h, src->w, src->format);
+    SDL_SetSurfaceBlendMode(dst, SDL_BLENDMODE_BLEND);
+    SDL_LockSurface(src);
+    SDL_LockSurface(dst);
+    for (int y = 0; y < src->h; y++) {
+        for (int x = 0; x < src->w; x++) {
+            Uint32* srcPx = (Uint32*)((Uint8*)src->pixels + y * src->pitch + x * 4);
+            Uint32* dstPx = (Uint32*)((Uint8*)dst->pixels + (src->w - 1 - x) * dst->pitch + y * 4);
+            *dstPx = *srcPx;
+        }
+    }
+    SDL_UnlockSurface(src);
+    SDL_UnlockSurface(dst);
+    return dst;
+}
+
+SDL_Surface* RotateSurface180(SDL_Surface* src) {
+    SDL_Surface* dst = SDL_CreateSurface(src->w, src->h, src->format);
+    SDL_SetSurfaceBlendMode(dst, SDL_BLENDMODE_BLEND);
+    SDL_LockSurface(src);
+    SDL_LockSurface(dst);
+    for (int y = 0; y < src->h; y++) {
+        for (int x = 0; x < src->w; x++) {
+            Uint32* srcPx = (Uint32*)((Uint8*)src->pixels + y * src->pitch + x * 4);
+            Uint32* dstPx = (Uint32*)((Uint8*)dst->pixels + (src->h - 1 - y) * dst->pitch + (src->w - 1 - x) * 4);
+            *dstPx = *srcPx;
+        }
+    }
+    SDL_UnlockSurface(src);
+    SDL_UnlockSurface(dst);
+    return dst;
+}
+
 void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
     auto view = reg.view<Transform, Renderable, AnimationState>();
-    view.each([screen](const Transform& t, const Renderable& r, const AnimationState& anim) {
-        if (r.frames.empty())
-            return;
+    view.each([&reg, screen](entt::entity entity, const Transform& t,
+                              const Renderable& r, const AnimationState& anim) {
+        if (r.frames.empty()) return;
 
-        const SDL_Rect& src  = r.frames[anim.currentFrame];
-        SDL_Rect        dest = {(int)t.x, (int)t.y, src.w, src.h};
+        const SDL_Rect& src = r.frames[anim.currentFrame];
 
+        // Extract the current frame into a temporary surface
+        SDL_Surface* frame = SDL_CreateSurface(src.w, src.h, r.sheet->format);
+        SDL_SetSurfaceBlendMode(frame, SDL_BLENDMODE_BLEND);
+        SDL_BlitSurface(r.sheet, &src, frame, nullptr);
+
+        // Flip horizontally if needed
         if (r.flipH) {
             SDL_Surface* flipped = SDL_CreateSurface(src.w, src.h, r.sheet->format);
             SDL_SetSurfaceBlendMode(flipped, SDL_BLENDMODE_BLEND);
-            SDL_LockSurface(r.sheet);
+            SDL_LockSurface(frame);
             SDL_LockSurface(flipped);
             for (int y = 0; y < src.h; y++) {
                 for (int x = 0; x < src.w; x++) {
-                    Uint32* srcPx =
-                        (Uint32*)((Uint8*)r.sheet->pixels + (src.y + y) * r.sheet->pitch +
-                                  (src.x + x) * 4);
-                    Uint32* dstPx = (Uint32*)((Uint8*)flipped->pixels + y * flipped->pitch +
-                                              (src.w - 1 - x) * 4);
-                    *dstPx        = *srcPx;
+                    Uint32* srcPx = (Uint32*)((Uint8*)frame->pixels + y * frame->pitch + x * 4);
+                    Uint32* dstPx = (Uint32*)((Uint8*)flipped->pixels + y * flipped->pitch + (src.w - 1 - x) * 4);
+                    *dstPx = *srcPx;
                 }
             }
-            SDL_UnlockSurface(r.sheet);
+            SDL_UnlockSurface(frame);
             SDL_UnlockSurface(flipped);
-            SDL_Rect flippedSrc = {0, 0, src.w, src.h};
-            SDL_BlitSurface(flipped, &flippedSrc, screen, &dest);
-        } else {
-            SDL_BlitSurface(r.sheet, &src, screen, &dest);
+            SDL_DestroySurface(frame);
+            frame = flipped;
         }
+
+        // Rotate based on gravity direction if this entity has GravityState
+        auto* g = reg.try_get<GravityState>(entity);
+        if (g && g->active) {
+            SDL_Surface* rotated = nullptr;
+            switch (g->direction) {
+                case GravityDir::DOWN:  rotated = nullptr;                   break;
+                case GravityDir::UP:    rotated = RotateSurface180(frame);   break;
+                case GravityDir::RIGHT: rotated = RotateSurface90CCW(frame); break;
+                case GravityDir::LEFT:  rotated = RotateSurface90CW(frame);  break;
+            }
+            if (rotated) {
+                SDL_DestroySurface(frame);
+                frame = rotated;
+            }
+        }
+
+        SDL_Rect dest = {(int)t.x, (int)t.y, frame->w, frame->h};
+        SDL_BlitSurface(frame, nullptr, screen, &dest);
+        SDL_DestroySurface(frame);
     });
 }
 
@@ -186,15 +257,14 @@ void BoundsSystem(entt::registry& reg, int windowW, int windowH) {
     view.each([windowW, windowH](Transform& t, const Collider& c,
                                   GravityState& g, Velocity& v) {
         auto activate = [&](GravityDir dir) {
-            if (!g.active) {
-                g.active    = true;
-                g.timer     = 0.0f;
-                g.isGrounded = false;
-                g.velocity  = 0.0f;
-                g.direction = dir;
-                v.dx        = 0.0f;
-                v.dy        = 0.0f;
-            }
+            // Always re-trigger, even if already in gravity mode
+            g.active     = true;
+            g.timer      = 0.0f;
+            g.isGrounded = false;
+            g.velocity   = 0.0f;
+            g.direction  = dir;
+            v.dx         = 0.0f;
+            v.dy         = 0.0f;
         };
 
         // Left wall — gravity pulls left
