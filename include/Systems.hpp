@@ -155,11 +155,12 @@ inline void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
             SDL_LockSurface(flipped);
             for (int y = 0; y < src.h; y++) {
                 for (int x = 0; x < src.w; x++) {
-                    Uint32* srcPx =
-                        (Uint32*)((Uint8*)frame->pixels + y * frame->pitch + x * 4);
-                    Uint32* dstPx = (Uint32*)((Uint8*)flipped->pixels + y * flipped->pitch +
-                                              (src.w - 1 - x) * 4);
-                    *dstPx        = *srcPx;
+                    Uint32* srcPx = reinterpret_cast<Uint32*>(
+                        static_cast<Uint8*>(frame->pixels) + y * frame->pitch + x * 4);
+                    Uint32* dstPx =
+                        reinterpret_cast<Uint32*>(static_cast<Uint8*>(flipped->pixels) +
+                                                  y * flipped->pitch + (src.w - 1 - x) * 4);
+                    *dstPx = *srcPx;
                 }
             }
             SDL_UnlockSurface(frame);
@@ -194,17 +195,17 @@ inline void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
 
         // When rotated, sprite dimensions swap so we need to adjust position
         // to keep the player visually flush against the wall
-        int renderX = (int)t.x;
-        int renderY = (int)t.y;
+        int renderX = static_cast<int>(t.x);
+        int renderY = static_cast<int>(t.y);
         if (g && g->active) {
             switch (g->direction) {
                 case GravityDir::RIGHT:
                     // Sprite is now wider than collider, shift left by the difference
-                    renderX = (int)t.x - (frame->w - PLAYER_SPRITE_WIDTH);
+                    renderX = static_cast<int>(t.x) - (frame->w - PLAYER_SPRITE_WIDTH);
                     break;
                 case GravityDir::UP:
                     // Sprite is now taller, shift up by the difference
-                    renderY = (int)t.y - (frame->h - PLAYER_SPRITE_HEIGHT);
+                    renderY = static_cast<int>(t.y) - (frame->h - PLAYER_SPRITE_HEIGHT);
                     break;
                 default:
                     break;
@@ -314,7 +315,7 @@ inline void BoundsSystem(entt::registry& reg, int windowW, int windowH) {
             }
             // Right wall — gravity pulls right
             if (t.x + c.w > windowW) {
-                t.x = (float)(windowW - c.w);
+                t.x = static_cast<float>(windowW - c.w);
                 activate(GravityDir::RIGHT);
             }
             // Top wall — gravity pulls up
@@ -361,48 +362,57 @@ inline void BoundsSystem(entt::registry& reg, int windowW, int windowH) {
 }
 
 inline void PlayerStateSystem(entt::registry& reg) {
-    auto view = reg.view<PlayerTag, Velocity, GravityState,
-                         Renderable, AnimationState, AnimationSet, InvincibilityTimer>();
+    auto view = reg.view<PlayerTag,
+                         Velocity,
+                         GravityState,
+                         Renderable,
+                         AnimationState,
+                         AnimationSet,
+                         InvincibilityTimer>();
 
-    view.each([](const Velocity& v, const GravityState& g,
-                 Renderable& r, AnimationState& anim,
-                 const AnimationSet& set, const InvincibilityTimer& inv) {
-
-        const std::vector<SDL_Rect>* newFrames = nullptr;
-        float newFps     = 12.0f;
-        bool  newLooping = true;
+    view.each([](const Velocity&           v,
+                 const GravityState&       g,
+                 Renderable&               r,
+                 AnimationState&           anim,
+                 const AnimationSet&       set,
+                 const InvincibilityTimer& inv) {
+        const std::vector<SDL_Rect>* newFrames  = nullptr;
+        float                        newFps     = 12.0f;
+        bool                         newLooping = true;
+        AnimationID                  newID      = AnimationID::NONE;
 
         bool isMoving = std::abs(v.dx) > 1.0f || std::abs(v.dy) > 1.0f;
 
         if (inv.isInvincible) {
-            // Hurt animation plays when hit
             newFrames  = &set.hurt;
             newFps     = 8.0f;
             newLooping = false;
+            newID      = AnimationID::HURT;
         } else if (g.active && !g.isGrounded) {
-            // Airborne in gravity mode
             newFrames  = &set.jump;
             newFps     = 10.0f;
             newLooping = true;
+            newID      = AnimationID::JUMP;
         } else if (isMoving) {
-            // Walking
             newFrames  = &set.walk;
             newFps     = 12.0f;
             newLooping = true;
+            newID      = AnimationID::WALK;
         } else {
-            // Idle
             newFrames  = &set.idle;
             newFps     = 8.0f;
             newLooping = true;
+            newID      = AnimationID::IDLE;
         }
 
-        // Only swap if the animation actually changed
-        if (newFrames && r.frames != *newFrames) {
+        if (newFrames && anim.currentAnim != newID) {
             r.frames          = *newFrames;
             anim.currentFrame = 0;
             anim.timer        = 0.0f;
             anim.fps          = newFps;
             anim.looping      = newLooping;
+            anim.totalFrames  = static_cast<int>(newFrames->size());
+            anim.currentAnim  = newID;
         }
     });
 }
@@ -471,8 +481,8 @@ inline void HUDSystem(entt::registry& reg,
         Uint8 r   = static_cast<Uint8>(255 * (1.0f - pct)); // more red as health drops
         Uint8 g   = static_cast<Uint8>(255 * pct);          // more green as health increases
         SDL_FillSurfaceRect(screen, &foreground, SDL_MapRGB(fmt, nullptr, r, g, 0));
-        std::string label =
-            std::to_string((int)h.current) + " / " + std::to_string((int)h.max);
+        std::string label = std::to_string(static_cast<int>(h.current)) + " / " +
+                            std::to_string(static_cast<int>(h.max));
         healthText->SetPosition(barX, barY - 20);
         healthText->CreateSurface(label);
         healthText->Render(screen);

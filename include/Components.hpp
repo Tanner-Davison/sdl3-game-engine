@@ -28,13 +28,16 @@ struct Velocity {
     float speed = PLAYER_SPEED;
 };
 
+enum class AnimationID { IDLE, WALK, JUMP, HURT, DUCK, FRONT, NONE };
+
 // Animation state
 struct AnimationState {
-    int   currentFrame = 0;
-    int   totalFrames  = 0;
-    float timer        = 0.0f;
-    float fps          = 12.0f;
-    bool  looping      = true;
+    int         currentFrame = 0;
+    int         totalFrames  = 0;
+    float       timer        = 0.0f;
+    float       fps          = 12.0f;
+    bool        looping      = true;
+    AnimationID currentAnim  = AnimationID::NONE;
 };
 
 // What to draw

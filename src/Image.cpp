@@ -127,11 +127,11 @@ void Image::Render(SDL_Surface* DestinationSurface) {
         for (int y = 0; y < mSrcRectangle.h; y++) {
             for (int x = 0; x < mSrcRectangle.w; x++) {
                 Uint32* srcPixel =
-                    (Uint32*)((Uint8*)mImageSurface->pixels +
+                    reinterpret_cast<Uint32*>(static_cast<Uint8*>(mImageSurface->pixels) +
                               (mSrcRectangle.y + y) * mImageSurface->pitch +
                               (mSrcRectangle.x + x) * 4);
                 Uint32* dstPixel =
-                    (Uint32*)((Uint8*)flipped->pixels +
+                    reinterpret_cast<Uint32*>(static_cast<Uint8*>(flipped->pixels) +
                               y * flipped->pitch +
                               (mSrcRectangle.w - 1 - x) * 4);
                 *dstPixel = *srcPixel;

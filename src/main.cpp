@@ -27,7 +27,7 @@ int main(int argc, char** argv) {
 
     while (true) {
         Uint64 currentTime = SDL_GetPerformanceCounter();
-        float  deltaTime   = (float)(currentTime - lastTime) / frequency;
+        float  deltaTime   = static_cast<float>(currentTime - lastTime) / static_cast<float>(frequency);
         lastTime           = currentTime;
 
         while (SDL_PollEvent(&E)) {
