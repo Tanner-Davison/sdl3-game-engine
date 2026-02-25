@@ -3,10 +3,10 @@
 #include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <print>
 #include <sstream>
 
-SpriteSheet::SpriteSheet(const std::string& imageFile,
-                         const std::string& coordFile)
+SpriteSheet::SpriteSheet(const std::string& imageFile, const std::string& coordFile)
     : surface(nullptr) {
     // Load the sprite sheet image
     surface = IMG_Load(imageFile.c_str());
@@ -40,8 +40,7 @@ void SpriteSheet::LoadCoordinates(const std::string& coordFile) {
 void SpriteSheet::LoadTextFormat(const std::string& coordFile) {
     std::ifstream file(coordFile);
     if (!file.is_open()) {
-        std::cout << "Failed to open coordinate file: " << coordFile
-                  << std::endl;
+        std::print("Failed to open coordinate file: {}", coordFile);
         return;
     }
 
@@ -61,15 +60,13 @@ void SpriteSheet::LoadTextFormat(const std::string& coordFile) {
         }
     }
 
-    // std::cout << "Loaded " << frames.size() << " frames from sprite sheet"
-    //           << std::endl;
+    std::print("Loaded {} frames from the sprite sheet", frames.size());
 }
 
 void SpriteSheet::LoadXMLFormat(const std::string& coordFile) {
     std::ifstream file(coordFile);
     if (!file.is_open()) {
-        std::cout << "Failed to open coordinate file: " << coordFile
-                  << std::endl;
+        std::print("Failed to open coordinate file: {}", coordFile);
         return;
     }
 
@@ -147,8 +144,7 @@ SDL_Rect SpriteSheet::GetFrame(const std::string& name) const {
     return {0, 0, 0, 0};
 }
 
-std::vector<SDL_Rect> SpriteSheet::GetAnimation(
-    const std::string& baseName) const {
+std::vector<SDL_Rect> SpriteSheet::GetAnimation(const std::string& baseName) const {
     std::vector<SDL_Rect> animation;
 
     // Collect all frames that start with baseName

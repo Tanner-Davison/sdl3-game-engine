@@ -87,6 +87,7 @@ class GameScene : public Scene {
     void Update(float dt) override {
         if (!gameOver) {
             MovementSystem(reg, dt);
+            CenterPullSystem(reg, dt, mWindow->GetWidth(), mWindow->GetHeight());
             BoundsSystem(reg, mWindow->GetWidth(), mWindow->GetHeight());
             AnimationSystem(reg, dt);
             CollisionSystem(reg, dt, gameOver);

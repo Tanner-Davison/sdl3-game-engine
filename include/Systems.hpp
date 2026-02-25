@@ -77,13 +77,15 @@ void MovementSystem(entt::registry& reg, float dt) {
                 case GravityDir::RIGHT: t.x += g.velocity * dt; break;
             }
 
-            // Timer
+            // Timer — once expired pull player to center and reset
             g.timer += dt;
             if (g.timer >= GRAVITY_DURATION) {
                 g.active     = false;
                 g.timer      = 0.0f;
                 g.velocity   = 0.0f;
                 g.isGrounded = false;
+                v.dx         = 0.0f;
+                v.dy         = 0.0f;
             }
         }
     });
@@ -271,14 +273,38 @@ void InputSystem(entt::registry& reg, SDL_Event& e) {
     });
 }
 
+void CenterPullSystem(entt::registry& reg, float dt, int windowW, int windowH) {
+    auto view = reg.view<Transform, Velocity, GravityState, PlayerTag>();
+    view.each([dt, windowW, windowH](Transform& t, Velocity& v, GravityState& g) {
+        if (g.active) return; // only runs in free mode
+
+        float centerX = windowW / 2.0f;
+        float centerY = windowH / 2.0f;
+
+        float dx = centerX - t.x;
+        float dy = centerY - t.y;
+        float dist = std::sqrt(dx * dx + dy * dy);
+
+        // Only pull if far from center
+        if (dist > 5.0f) {
+            constexpr float pullSpeed = 200.0f;
+            float norm = pullSpeed / dist;
+            t.x += dx * norm * dt;
+            t.y += dy * norm * dt;
+        }
+    });
+}
+
 void BoundsSystem(entt::registry& reg, int windowW, int windowH) {
     auto view = reg.view<Transform, Collider, GravityState, Velocity, PlayerTag>();
     view.each([windowW, windowH](Transform& t, const Collider& c,
                                   GravityState& g, Velocity& v) {
         auto activate = [&](GravityDir dir) {
-            // Always re-trigger, even if already in gravity mode
+            // If already grounded on this same wall, don't do anything
+            if (g.active && g.isGrounded && g.direction == dir) return;
+            // Only reset timer on very first activation
+            if (!g.active) g.timer = 0.0f;
             g.active     = true;
-            g.timer      = 0.0f;
             g.isGrounded = false;
             g.velocity   = 0.0f;
             g.direction  = dir;
