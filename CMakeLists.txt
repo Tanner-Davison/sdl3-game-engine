@@ -14,6 +14,7 @@ find_package(EnTT CONFIG REQUIRED)
 
 set(SOURCES
     src/main.cpp
+    src/TitleScene.cpp
     src/Window.cpp
     src/Rectangle.cpp
     src/UI.cpp
