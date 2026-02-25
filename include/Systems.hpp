@@ -1,11 +1,19 @@
 #include <Components.hpp>
 #include <SDL3/SDL.h>
 #include <entt/entt.hpp>
+#include <cmath>
 #include <print>
 
 void MovementSystem(entt::registry& reg, float dt) {
     auto view = reg.view<Transform, Velocity>();
     view.each([dt](Transform& t, Velocity& v) {
+        constexpr float friction = 3.0f;
+        v.dx -= v.dx * friction * dt;
+        v.dy -= v.dy * friction * dt;
+
+        if (std::abs(v.dx) < 0.5f) v.dx = 0.0f;
+        if (std::abs(v.dy) < 0.5f) v.dy = 0.0f;
+
         t.x += v.dx * dt;
         t.y += v.dy * dt;
     });
