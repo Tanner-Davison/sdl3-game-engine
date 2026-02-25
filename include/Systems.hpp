@@ -360,6 +360,53 @@ inline void BoundsSystem(entt::registry& reg, int windowW, int windowH) {
         });
 }
 
+inline void PlayerStateSystem(entt::registry& reg) {
+    auto view = reg.view<PlayerTag, Velocity, GravityState,
+                         Renderable, AnimationState, AnimationSet, InvincibilityTimer>();
+
+    view.each([](const Velocity& v, const GravityState& g,
+                 Renderable& r, AnimationState& anim,
+                 const AnimationSet& set, const InvincibilityTimer& inv) {
+
+        const std::vector<SDL_Rect>* newFrames = nullptr;
+        float newFps     = 12.0f;
+        bool  newLooping = true;
+
+        bool isMoving = std::abs(v.dx) > 1.0f || std::abs(v.dy) > 1.0f;
+
+        if (inv.isInvincible) {
+            // Hurt animation plays when hit
+            newFrames  = &set.hurt;
+            newFps     = 8.0f;
+            newLooping = false;
+        } else if (g.active && !g.isGrounded) {
+            // Airborne in gravity mode
+            newFrames  = &set.jump;
+            newFps     = 10.0f;
+            newLooping = true;
+        } else if (isMoving) {
+            // Walking
+            newFrames  = &set.walk;
+            newFps     = 12.0f;
+            newLooping = true;
+        } else {
+            // Idle
+            newFrames  = &set.idle;
+            newFps     = 8.0f;
+            newLooping = true;
+        }
+
+        // Only swap if the animation actually changed
+        if (newFrames && r.frames != *newFrames) {
+            r.frames          = *newFrames;
+            anim.currentFrame = 0;
+            anim.timer        = 0.0f;
+            anim.fps          = newFps;
+            anim.looping      = newLooping;
+        }
+    });
+}
+
 inline void CollisionSystem(entt::registry& reg, float dt, bool& gameOver) {
     auto timerView = reg.view<InvincibilityTimer>();
     timerView.each([dt](InvincibilityTimer& inv) {

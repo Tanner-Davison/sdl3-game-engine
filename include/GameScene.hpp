@@ -22,7 +22,14 @@ class GameScene : public Scene {
         playerSheet =
             std::make_unique<SpriteSheet>("game_assets/base_pack/Player/p1_spritesheet.png",
                                           "game_assets/base_pack/Player/p1_spritesheet.txt");
-        walkFrames = playerSheet->GetAnimation("p1_walk");
+
+        // Load all player animations
+        walkFrames  = playerSheet->GetAnimation("p1_walk");
+        jumpFrames  = playerSheet->GetAnimation("p1_jump");
+        idleFrames  = { playerSheet->GetFrame("p1_stand") };
+        hurtFrames  = { playerSheet->GetFrame("p1_hurt") };
+        duckFrames  = { playerSheet->GetFrame("p1_duck") };
+        frontFrames = { playerSheet->GetFrame("p1_front") };
 
         enemySheet = std::make_unique<SpriteSheet>(
             "game_assets/base_pack/Enemies/enemies_spritesheet.png",
@@ -94,6 +101,7 @@ class GameScene : public Scene {
             MovementSystem(reg, dt);
             CenterPullSystem(reg, dt, mWindow->GetWidth(), mWindow->GetHeight());
             BoundsSystem(reg, mWindow->GetWidth(), mWindow->GetHeight());
+            PlayerStateSystem(reg);
             AnimationSystem(reg, dt);
             CollisionSystem(reg, dt, gameOver);
         }
@@ -126,6 +134,11 @@ class GameScene : public Scene {
     std::unique_ptr<SpriteSheet> playerSheet;
     std::unique_ptr<SpriteSheet> enemySheet;
     std::vector<SDL_Rect>        walkFrames;
+    std::vector<SDL_Rect>        jumpFrames;
+    std::vector<SDL_Rect>        idleFrames;
+    std::vector<SDL_Rect>        hurtFrames;
+    std::vector<SDL_Rect>        duckFrames;
+    std::vector<SDL_Rect>        frontFrames;
     std::vector<SDL_Rect>        enemyWalkFrames;
 
     std::unique_ptr<Image>     background;
@@ -152,6 +165,14 @@ class GameScene : public Scene {
         reg.emplace<Collider>(player, PLAYER_SPRITE_WIDTH, PLAYER_SPRITE_HEIGHT);
         reg.emplace<InvincibilityTimer>(player);
         reg.emplace<GravityState>(player);
+        reg.emplace<AnimationSet>(player, AnimationSet{
+            .idle  = idleFrames,
+            .walk  = walkFrames,
+            .jump  = jumpFrames,
+            .hurt  = hurtFrames,
+            .duck  = duckFrames,
+            .front = frontFrames,
+        });
 
         for (int i = 0; i < 15; ++i) {
             float xPos  = rand() % (mWindow->GetWidth() - 100);

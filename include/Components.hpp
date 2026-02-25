@@ -65,6 +65,16 @@ struct InvincibilityTimer {
     bool  isInvincible = false;
 };
 
+// Holds all animation frame sets for an entity
+struct AnimationSet {
+    std::vector<SDL_Rect> idle;
+    std::vector<SDL_Rect> walk;
+    std::vector<SDL_Rect> jump;
+    std::vector<SDL_Rect> hurt;
+    std::vector<SDL_Rect> duck;
+    std::vector<SDL_Rect> front;
+};
+
 enum class GravityDir { DOWN, UP, LEFT, RIGHT };
 
 struct GravityState {
