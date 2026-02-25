@@ -1,13 +1,12 @@
 #pragma once
-#include "Scene.hpp"
 #include "Image.hpp"
 #include "Rectangle.hpp"
+#include "Scene.hpp"
 #include "Text.hpp"
 #include "Window.hpp"
 #include <SDL3/SDL.h>
 #include <memory>
 
-// Forward declare so TitleScene can return a GameScene
 class GameScene;
 
 class TitleScene : public Scene {

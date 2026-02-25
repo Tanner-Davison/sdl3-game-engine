@@ -21,7 +21,6 @@ class SceneManager {
         if (!mCurrent) return;
         mCurrent->Update(dt);
 
-        // Check if the scene wants to transition
         auto next = mCurrent->NextScene();
         if (next) {
             mCurrent->Unload();

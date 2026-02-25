@@ -1,6 +1,7 @@
 #pragma once
-#include <memory>
 #include <SDL3/SDL.h>
+#include <memory>
+#include <string>
 
 struct SDLWindowDeleter {
     void operator()(SDL_Window* Ptr) const {
@@ -12,13 +13,14 @@ struct SDLWindowDeleter {
 
 using UniqueSDLWindow = std::unique_ptr<SDL_Window, SDLWindowDeleter>;
 
+// Note: SDL_GetWindowSurface and SDL_CreateRenderer are mutually exclusive.
+// This engine uses surface-based rendering — do not create a renderer on this window.
 class Window {
   public:
     Window();
 
-    SDL_Window*   GetRaw() const;
-    SDL_Surface*  GetSurface() const;
-    SDL_Renderer* GetRenderer() const;
+    SDL_Window*  GetRaw() const;
+    SDL_Surface* GetSurface() const;
 
     void Render();
     void Update();
@@ -36,5 +38,4 @@ class Window {
 
   private:
     UniqueSDLWindow SDLWindow{nullptr};
-    SDL_Renderer*   mRenderer{nullptr};
 };

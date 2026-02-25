@@ -11,7 +11,7 @@
 int main(int argc, char** argv) {
     SDL_Init(SDL_INIT_VIDEO);
     if (!TTF_Init()) {
-        std::print("Error initializing SDL_ttf: %s\n", SDL_GetError());
+        std::print("Error initializing SDL_ttf: {}\n", SDL_GetError());
         return 1;
     }
     srand(static_cast<unsigned int>(time(nullptr)));

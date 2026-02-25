@@ -1,7 +1,6 @@
 #include "Window.hpp"
 #include "ErrorHandling.hpp"
 #include <SDL3_image/SDL_image.h>
-#include <iostream>
 #include <stdexcept>
 
 Window::Window() {
@@ -16,10 +15,10 @@ Window::Window() {
 
     SDLWindow.reset(Ptr);
 
-    mRenderer = SDL_CreateRenderer(SDLWindow.get(), nullptr);
-    CheckSDLError("Creating Renderer");
+    // Note: do not call SDL_CreateRenderer on this window.
+    // SDL_GetWindowSurface and SDL_CreateRenderer are mutually exclusive on Mac.
+    // This engine uses surface-based rendering throughout.
 
-    // Map colors using SDL3 pixel format utilities
     SDL_Surface* surf = GetSurface();
     if (surf) {
         const SDL_PixelFormatDetails* details =
@@ -40,10 +39,6 @@ SDL_Window* Window::GetRaw() const {
 
 SDL_Surface* Window::GetSurface() const {
     return SDLWindow ? SDL_GetWindowSurface(SDLWindow.get()) : nullptr;
-}
-
-SDL_Renderer* Window::GetRenderer() const {
-    return mRenderer;
 }
 
 void Window::Render() {

@@ -1,0 +1,49 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "linux",
+      "displayName": "Linux",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build",
+      "toolchainFile": "$env{HOME}/tools/vcpkg/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-linux"
+      }
+    },
+    {
+      "name": "mac-arm",
+      "displayName": "macOS Apple Silicon",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build",
+      "toolchainFile": "$env{HOME}/tools/vcpkg/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "arm64-osx"
+      }
+    },
+    {
+      "name": "mac-intel",
+      "displayName": "macOS Intel",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build",
+      "toolchainFile": "$env{HOME}/tools/vcpkg/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-osx"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "linux",
+      "configurePreset": "linux"
+    },
+    {
+      "name": "mac-arm",
+      "configurePreset": "mac-arm"
+    },
+    {
+      "name": "mac-intel",
+      "configurePreset": "mac-intel"
+    }
+  ]
+}
