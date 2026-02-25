@@ -6,21 +6,86 @@
 
 void MovementSystem(entt::registry& reg, float dt) {
     const bool* keys = SDL_GetKeyboardState(nullptr);
-    auto view = reg.view<Transform, Velocity, PlayerTag>();
-    view.each([dt, keys](Transform& t, Velocity& v) {
-        bool anyKeyHeld = keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_S] ||
-                          keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_D];
 
-        if (!anyKeyHeld) {
+    auto playerView = reg.view<Transform, Velocity, GravityState, PlayerTag>();
+    playerView.each([dt, keys](Transform& t, Velocity& v, GravityState& g) {
+        if (!g.active) {
+            // Free mode — friction on key release
+            bool anyKeyHeld = keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_S] ||
+                              keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_D];
+            if (!anyKeyHeld) {
+                constexpr float friction = 3.0f;
+                v.dx -= v.dx * friction * dt;
+                v.dy -= v.dy * friction * dt;
+                if (std::abs(v.dx) < 0.5f) v.dx = 0.0f;
+                if (std::abs(v.dy) < 0.5f) v.dy = 0.0f;
+            }
+            t.x += v.dx * dt;
+            t.y += v.dy * dt;
+        } else {
+            // Gravity mode — movement perpendicular to gravity axis still works
+            v.dx = 0.0f;
+            v.dy = 0.0f;
+
+            bool horizKey = keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_D];
+            bool vertKey  = keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_S];
             constexpr float friction = 3.0f;
-            v.dx -= v.dx * friction * dt;
-            v.dy -= v.dy * friction * dt;
-            if (std::abs(v.dx) < 0.5f) v.dx = 0.0f;
-            if (std::abs(v.dy) < 0.5f) v.dy = 0.0f;
-        }
 
-        t.x += v.dx * dt;
-        t.y += v.dy * dt;
+            switch (g.direction) {
+                case GravityDir::DOWN:
+                case GravityDir::UP: {
+                    // Horizontal walking still works
+                    if (keys[SDL_SCANCODE_A]) v.dx = -v.speed;
+                    if (keys[SDL_SCANCODE_D]) v.dx =  v.speed;
+                    if (!horizKey) {
+                        v.dx -= v.dx * friction * dt;
+                        if (std::abs(v.dx) < 0.5f) v.dx = 0.0f;
+                    }
+                    t.x += v.dx * dt;
+                    break;
+                }
+                case GravityDir::LEFT:
+                case GravityDir::RIGHT: {
+                    // Vertical walking still works
+                    if (keys[SDL_SCANCODE_W]) v.dy = -v.speed;
+                    if (keys[SDL_SCANCODE_S]) v.dy =  v.speed;
+                    if (!vertKey) {
+                        v.dy -= v.dy * friction * dt;
+                        if (std::abs(v.dy) < 0.5f) v.dy = 0.0f;
+                    }
+                    t.y += v.dy * dt;
+                    break;
+                }
+            }
+
+            // Apply gravity along the gravity axis
+            if (!g.isGrounded) {
+                g.velocity += GRAVITY_FORCE * dt;
+                if (g.velocity > MAX_FALL_SPEED) g.velocity = MAX_FALL_SPEED;
+            }
+
+            // Hold space boosts away from wall
+            if (g.jumpHeld && !g.isGrounded && g.velocity < 0.0f) {
+                g.velocity -= JUMP_FORCE * 0.5f * dt;
+            }
+
+            // Apply gravity velocity in the correct direction
+            switch (g.direction) {
+                case GravityDir::DOWN:  t.y += g.velocity * dt; break;
+                case GravityDir::UP:    t.y -= g.velocity * dt; break;
+                case GravityDir::LEFT:  t.x -= g.velocity * dt; break;
+                case GravityDir::RIGHT: t.x += g.velocity * dt; break;
+            }
+
+            // Timer
+            g.timer += dt;
+            if (g.timer >= GRAVITY_DURATION) {
+                g.active     = false;
+                g.timer      = 0.0f;
+                g.velocity   = 0.0f;
+                g.isGrounded = false;
+            }
+        }
     });
 
     // Enemies move without friction
@@ -80,14 +145,94 @@ void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
 }
 
 void InputSystem(entt::registry& reg, SDL_Event& e) {
-    auto view = reg.view<PlayerTag, Velocity, Renderable>();
-    view.each([&e](Velocity& v, Renderable& r) {
+    // WASD only works in free mode
+    auto view = reg.view<PlayerTag, Velocity, Renderable, GravityState>();
+    view.each([&e](Velocity& v, Renderable& r, GravityState& g) {
+        // Horizontal movement always works
         if (e.type == SDL_EVENT_KEY_DOWN) {
             switch (e.key.key) {
-                case SDLK_W: v.dy = -v.speed; break;
-                case SDLK_S: v.dy =  v.speed; break;
                 case SDLK_A: v.dx = -v.speed; r.flipH = true;  break;
                 case SDLK_D: v.dx =  v.speed; r.flipH = false; break;
+            }
+        }
+
+        if (!g.active) {
+            // Vertical movement only in free mode
+            if (e.type == SDL_EVENT_KEY_DOWN) {
+                switch (e.key.key) {
+                    case SDLK_W: v.dy = -v.speed; break;
+                    case SDLK_S: v.dy =  v.speed; break;
+                }
+            }
+        } else {
+            // Space jump only in gravity mode when grounded
+            if (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_SPACE) {
+                if (g.isGrounded) {
+                    // Jump always pushes away from the gravity wall
+                    g.velocity   = -JUMP_FORCE;
+                    g.isGrounded = false;
+                    g.jumpHeld   = true;
+                }
+            }
+            if (e.type == SDL_EVENT_KEY_UP && e.key.key == SDLK_SPACE) {
+                g.jumpHeld = false;
+            }
+        }
+    });
+}
+
+void BoundsSystem(entt::registry& reg, int windowW, int windowH) {
+    auto view = reg.view<Transform, Collider, GravityState, Velocity, PlayerTag>();
+    view.each([windowW, windowH](Transform& t, const Collider& c,
+                                  GravityState& g, Velocity& v) {
+        auto activate = [&](GravityDir dir) {
+            if (!g.active) {
+                g.active    = true;
+                g.timer     = 0.0f;
+                g.isGrounded = false;
+                g.velocity  = 0.0f;
+                g.direction = dir;
+                v.dx        = 0.0f;
+                v.dy        = 0.0f;
+            }
+        };
+
+        // Left wall — gravity pulls left
+        if (t.x < 0.0f) {
+            t.x = 0.0f;
+            activate(GravityDir::LEFT);
+        }
+        // Right wall — gravity pulls right
+        if (t.x + c.w > windowW) {
+            t.x = (float)(windowW - c.w);
+            activate(GravityDir::RIGHT);
+        }
+        // Top wall — gravity pulls up
+        if (t.y < 0.0f) {
+            t.y = 0.0f;
+            activate(GravityDir::UP);
+        }
+        // Bottom wall — gravity pulls down
+        if (t.y + c.h > windowH) {
+            t.y = (float)(windowH - c.h);
+            activate(GravityDir::DOWN);
+        }
+
+        // Check if player has landed on their gravity wall
+        if (g.active) {
+            switch (g.direction) {
+                case GravityDir::DOWN:
+                    if (t.y + c.h >= windowH) { g.isGrounded = true; g.velocity = 0.0f; }
+                    break;
+                case GravityDir::UP:
+                    if (t.y <= 0.0f) { g.isGrounded = true; g.velocity = 0.0f; }
+                    break;
+                case GravityDir::LEFT:
+                    if (t.x <= 0.0f) { g.isGrounded = true; g.velocity = 0.0f; }
+                    break;
+                case GravityDir::RIGHT:
+                    if (t.x + c.w >= windowW) { g.isGrounded = true; g.velocity = 0.0f; }
+                    break;
             }
         }
     });

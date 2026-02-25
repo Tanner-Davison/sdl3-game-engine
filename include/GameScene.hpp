@@ -87,6 +87,7 @@ class GameScene : public Scene {
     void Update(float dt) override {
         if (!gameOver) {
             MovementSystem(reg, dt);
+            BoundsSystem(reg, mWindow->GetWidth(), mWindow->GetHeight());
             AnimationSystem(reg, dt);
             CollisionSystem(reg, dt, gameOver);
         }
@@ -141,6 +142,7 @@ class GameScene : public Scene {
         reg.emplace<Health>(player);
         reg.emplace<Collider>(player, PLAYER_SPRITE_WIDTH, PLAYER_SPRITE_HEIGHT);
         reg.emplace<InvincibilityTimer>(player);
+        reg.emplace<GravityState>(player);
 
         for (int i = 0; i < 15; ++i) {
             float xPos  = rand() % (mWindow->GetWidth() - 100);
