@@ -24,7 +24,7 @@ BreakBeforeBinaryOperators: None
 BreakBeforeBraces: Attach
 BreakBeforeTernaryOperators: true
 BreakStringLiterals: true
-ColumnLimit: 80
+ColumnLimit: 93
 CommentPragmas: "^ IWYU pragma:"
 AllowAllConstructorInitializersOnNextLine: false
 BreakConstructorInitializers: BeforeComma
