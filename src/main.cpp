@@ -12,13 +12,14 @@
 #include <SDL3_ttf/SDL_ttf.h>
 #include <cstdlib>
 #include <ctime>
-#include <iostream>
+#include <entt/entt.hpp>
+#include <print>
 
 int main(int argc, char** argv) {
     SDL_Init(SDL_INIT_VIDEO);
 
     if (!TTF_Init()) {
-        std::cout << "Error initializing SDL_ttf: " << SDL_GetError();
+        std::print("Error initializing SDL_ttf: %s\n", SDL_GetError());
         return 1;
     }
 

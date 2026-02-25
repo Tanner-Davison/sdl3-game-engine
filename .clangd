@@ -1,6 +1,6 @@
 CompileFlags:
   Add:
     - "-I./include"
-    - "-I./include/SDL2"
+    - "-I/home/tanner/tools/vcpkg/installed/x64-linux/include"
 Index:
   Background: true
