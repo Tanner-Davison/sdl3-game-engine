@@ -1,4 +1,4 @@
-#include "Text.h"
+#include "Text.hpp"
 #include <SDL.h>
 #include <SDL_ttf.h>
 #include <iostream>

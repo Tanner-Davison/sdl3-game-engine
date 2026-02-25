@@ -1,10 +1,10 @@
 /*Copyright (c) 2025 Tanner Davison. All Rights Reserved.*/
 #include "Button.hpp"
 #include "Image.hpp"
-#include "ScaledText.h"
+#include "ScaledText.hpp"
 #include "Sprite.hpp"
 #include "SpriteSheet.hpp"
-#include "Text.h"
+#include "Text.hpp"
 #include "UI.hpp"
 #include "Window.hpp"
 #include <SDL_assert.h>
