@@ -209,7 +209,24 @@ void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
             }
         }
 
-        SDL_Rect dest = {(int)t.x, (int)t.y, frame->w, frame->h};
+        // When rotated, sprite dimensions swap so we need to adjust position
+        // to keep the player visually flush against the wall
+        int renderX = (int)t.x;
+        int renderY = (int)t.y;
+        if (g && g->active) {
+            switch (g->direction) {
+                case GravityDir::RIGHT:
+                    // Sprite is now wider than collider, shift left by the difference
+                    renderX = (int)t.x - (frame->w - PLAYER_SPRITE_WIDTH);
+                    break;
+                case GravityDir::UP:
+                    // Sprite is now taller, shift up by the difference
+                    renderY = (int)t.y - (frame->h - PLAYER_SPRITE_HEIGHT);
+                    break;
+                default: break;
+            }
+        }
+        SDL_Rect dest = {renderX, renderY, frame->w, frame->h};
         SDL_BlitSurface(frame, nullptr, screen, &dest);
         SDL_DestroySurface(frame);
     });
