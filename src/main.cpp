@@ -1,6 +1,7 @@
 /*Copyright (c) 2025 Tanner Davison. All Rights Reserved.*/
 #include "Components.hpp"
 #include "Image.hpp"
+#include "Rectangle.hpp"
 #include "ScaledText.hpp"
 #include "SpriteSheet.hpp"
 #include "Systems.hpp"
@@ -13,6 +14,42 @@
 #include <ctime>
 #include <entt/entt.hpp>
 #include <print>
+
+entt::entity SpawnPlayer(entt::registry&          reg,
+                          int                      windowW,
+                          int                      windowH,
+                          SDL_Surface*             sheet,
+                          const std::vector<SDL_Rect>& frames) {
+    auto player = reg.create();
+    reg.emplace<Transform>(player,
+                           (float)(windowW / 2 - 33),
+                           (float)(windowH / 2 - 46));
+    reg.emplace<Velocity>(player);
+    reg.emplace<AnimationState>(player, 0, (int)frames.size(), 0.0f, 12.0f, true);
+    reg.emplace<Renderable>(player, sheet, frames, false);
+    reg.emplace<PlayerTag>(player);
+    reg.emplace<Health>(player);
+    reg.emplace<Collider>(player, PLAYER_SPRITE_WIDTH, PLAYER_SPRITE_HEIGHT);
+    reg.emplace<InvincibilityTimer>(player);
+    return player;
+}
+
+void SpawnEnemies(entt::registry&          reg,
+                  int                      windowW,
+                  int                      windowH,
+                  SDL_Surface*             sheet,
+                  const std::vector<SDL_Rect>& frames) {
+    for (int i = 0; i < 15; ++i) {
+        float xPos  = rand() % (windowW - 100);
+        float yPos  = rand() % (windowH - 100);
+        auto  enemy = reg.create();
+        reg.emplace<Transform>(enemy, xPos, yPos);
+        reg.emplace<Velocity>(enemy);
+        reg.emplace<AnimationState>(enemy, 0, (int)frames.size(), 0.0f, 7.0f, true);
+        reg.emplace<Renderable>(enemy, sheet, frames, false);
+        reg.emplace<Collider>(enemy, SLIME_SPRITE_WIDTH, SLIME_SPRITE_HEIGHT);
+    }
+}
 
 int main(int argc, char** argv) {
     SDL_Init(SDL_INIT_VIDEO);
@@ -34,42 +71,28 @@ int main(int argc, char** argv) {
     Text       GameOverText{"Game Over!",
                       {255, 0, 0, 255},
                       GameWindow.GetWidth() / 2 - 100,
-                      GameWindow.GetHeight() / 2,
+                      GameWindow.GetHeight() / 2 - 40,
                       64};
+    Text       RetryText{"Press R to Retry",
+                   {255, 255, 255, 255},
+                   GameWindow.GetWidth() / 2 - 120,
+                   GameWindow.GetHeight() / 2 + 40,
+                   32};
 
-    // Player
+    // Asset loading — happens once, survives retries
     SpriteSheet           playerSheet("game_assets/base_pack/Player/p1_spritesheet.png",
                                       "game_assets/base_pack/Player/p1_spritesheet.txt");
     std::vector<SDL_Rect> walkFrames = playerSheet.GetAnimation("p1_walk");
 
-    auto player = reg.create();
-    reg.emplace<Transform>(player,
-                           (float)(GameWindow.GetWidth() / 2 - 33),
-                           (float)(GameWindow.GetHeight() / 2 - 46));
-    reg.emplace<Velocity>(player);
-    reg.emplace<AnimationState>(player, 0, (int)walkFrames.size(), 0.0f, 12.0f, true);
-    reg.emplace<Renderable>(player, playerSheet.GetSurface(), walkFrames, false);
-    reg.emplace<PlayerTag>(player);
-    reg.emplace<Health>(player);
-    reg.emplace<Collider>(player, PLAYER_SPRITE_WIDTH, PLAYER_SPRITE_HEIGHT);
-    reg.emplace<InvincibilityTimer>(player);
-
-    // Enemies
     SpriteSheet           enemySheet("game_assets/base_pack/Enemies/enemies_spritesheet.png",
                                      "game_assets/base_pack/Enemies/enemies_spritesheet.txt");
     std::vector<SDL_Rect> enemyWalkFrames = enemySheet.GetAnimation("slimeWalk");
 
-    for (int i = 0; i < 15; ++i) {
-        float xPos = rand() % (GameWindow.GetWidth() - 100);
-        float yPos = rand() % (GameWindow.GetHeight() - 100);
-
-        auto enemy = reg.create();
-        reg.emplace<Transform>(enemy, xPos, yPos);
-        reg.emplace<Velocity>(enemy);
-        reg.emplace<AnimationState>(enemy, 0, (int)enemyWalkFrames.size(), 0.0f, 7.0f, true);
-        reg.emplace<Renderable>(enemy, enemySheet.GetSurface(), enemyWalkFrames, false);
-        reg.emplace<Collider>(enemy, SLIME_SPRITE_WIDTH, SLIME_SPRITE_HEIGHT);
-    }
+    // Initial spawn
+    SpawnPlayer(reg, GameWindow.GetWidth(), GameWindow.GetHeight(),
+                playerSheet.GetSurface(), walkFrames);
+    SpawnEnemies(reg, GameWindow.GetWidth(), GameWindow.GetHeight(),
+                 enemySheet.GetSurface(), enemyWalkFrames);
 
     UI        UIManager;
     SDL_Event E;
@@ -84,7 +107,17 @@ int main(int argc, char** argv) {
 
         while (SDL_PollEvent(&E)) {
             UIManager.HandleEvent(E);
-            if (!gameOver) InputSystem(reg, E);
+            if (!gameOver) {
+                InputSystem(reg, E);
+            } else if (E.type == SDL_EVENT_KEY_DOWN && E.key.key == SDLK_R) {
+                // Retry — destroy all entities and respawn
+                reg.clear();
+                SpawnPlayer(reg, GameWindow.GetWidth(), GameWindow.GetHeight(),
+                            playerSheet.GetSurface(), walkFrames);
+                SpawnEnemies(reg, GameWindow.GetWidth(), GameWindow.GetHeight(),
+                             enemySheet.GetSurface(), enemyWalkFrames);
+                gameOver = false;
+            }
             if (E.type == SDL_EVENT_QUIT) {
                 TTF_Quit();
                 SDL_Quit();
@@ -103,6 +136,7 @@ int main(int argc, char** argv) {
 
         if (gameOver) {
             GameOverText.Render(GameWindow.GetSurface());
+            RetryText.Render(GameWindow.GetSurface());
         } else {
             LocationText.Render(GameWindow.GetSurface());
             ScaledExample.Render(GameWindow.GetSurface());

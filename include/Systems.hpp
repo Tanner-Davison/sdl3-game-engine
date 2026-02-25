@@ -70,6 +70,12 @@ void InputSystem(entt::registry& reg, SDL_Event& e) {
                 case SDLK_D: v.dx =  v.speed; r.flipH = false; break;
             }
         }
+        if (e.type == SDL_EVENT_KEY_UP) {
+            switch (e.key.key) {
+                case SDLK_W: case SDLK_S: v.dy = 0.0f; break;
+                case SDLK_A: case SDLK_D: v.dx = 0.0f; break;
+            }
+        }
     });
 }
 
