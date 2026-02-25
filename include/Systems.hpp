@@ -5,15 +5,27 @@
 #include <print>
 
 void MovementSystem(entt::registry& reg, float dt) {
-    auto view = reg.view<Transform, Velocity>();
-    view.each([dt](Transform& t, Velocity& v) {
-        constexpr float friction = 3.0f;
-        v.dx -= v.dx * friction * dt;
-        v.dy -= v.dy * friction * dt;
+    const bool* keys = SDL_GetKeyboardState(nullptr);
+    auto view = reg.view<Transform, Velocity, PlayerTag>();
+    view.each([dt, keys](Transform& t, Velocity& v) {
+        bool anyKeyHeld = keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_S] ||
+                          keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_D];
 
-        if (std::abs(v.dx) < 0.5f) v.dx = 0.0f;
-        if (std::abs(v.dy) < 0.5f) v.dy = 0.0f;
+        if (!anyKeyHeld) {
+            constexpr float friction = 3.0f;
+            v.dx -= v.dx * friction * dt;
+            v.dy -= v.dy * friction * dt;
+            if (std::abs(v.dx) < 0.5f) v.dx = 0.0f;
+            if (std::abs(v.dy) < 0.5f) v.dy = 0.0f;
+        }
 
+        t.x += v.dx * dt;
+        t.y += v.dy * dt;
+    });
+
+    // Enemies move without friction
+    auto enemyView = reg.view<Transform, Velocity>(entt::exclude<PlayerTag>);
+    enemyView.each([dt](Transform& t, Velocity& v) {
         t.x += v.dx * dt;
         t.y += v.dy * dt;
     });
@@ -76,12 +88,6 @@ void InputSystem(entt::registry& reg, SDL_Event& e) {
                 case SDLK_S: v.dy =  v.speed; break;
                 case SDLK_A: v.dx = -v.speed; r.flipH = true;  break;
                 case SDLK_D: v.dx =  v.speed; r.flipH = false; break;
-            }
-        }
-        if (e.type == SDL_EVENT_KEY_UP) {
-            switch (e.key.key) {
-                case SDLK_W: case SDLK_S: v.dy = 0.0f; break;
-                case SDLK_A: case SDLK_D: v.dx = 0.0f; break;
             }
         }
     });

@@ -19,7 +19,6 @@ set(SOURCES
     src/UI.cpp
     src/Button.cpp
     src/Image.cpp
-    src/Sprite.cpp
     src/Text.cpp
     src/SpriteSheet.cpp
 )
