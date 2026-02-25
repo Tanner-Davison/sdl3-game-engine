@@ -220,10 +220,12 @@ void InputSystem(entt::registry& reg, SDL_Event& e) {
     auto view = reg.view<PlayerTag, Velocity, Renderable, GravityState>();
     view.each([&e](Velocity& v, Renderable& r, GravityState& g) {
         // Horizontal movement always works
+        // On the top wall the sprite is rotated 180 so left/right facing is inverted
+        bool invertFlip = g.active && g.direction == GravityDir::UP;
         if (e.type == SDL_EVENT_KEY_DOWN) {
             switch (e.key.key) {
-                case SDLK_A: v.dx = -v.speed; r.flipH = true;  break;
-                case SDLK_D: v.dx =  v.speed; r.flipH = false; break;
+                case SDLK_A: v.dx = -v.speed; r.flipH = !invertFlip; break;
+                case SDLK_D: v.dx =  v.speed; r.flipH =  invertFlip; break;
             }
         }
 

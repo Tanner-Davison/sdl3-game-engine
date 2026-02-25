@@ -14,6 +14,7 @@ inline constexpr float GRAVITY_DURATION     = 60.0f;  // 1 minute
 inline constexpr float GRAVITY_FORCE        = 600.0f; // pixels/sec^2
 inline constexpr float JUMP_FORCE           = 800.0f; // pixels/sec
 inline constexpr float MAX_FALL_SPEED       = 900.0f;
+inline constexpr float PLAYER_SPEED         = 300.0f;
 // Position and size in the world
 struct Transform {
     float x = 0.0f;
@@ -24,7 +25,7 @@ struct Transform {
 struct Velocity {
     float dx    = 0.0f;
     float dy    = 0.0f;
-    float speed = 150.0f;
+    float speed = PLAYER_SPEED;
 };
 
 // Animation state
