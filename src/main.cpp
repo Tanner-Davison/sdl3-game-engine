@@ -15,10 +15,10 @@
 #include <entt/entt.hpp>
 #include <print>
 
-entt::entity SpawnPlayer(entt::registry&          reg,
-                          int                      windowW,
-                          int                      windowH,
-                          SDL_Surface*             sheet,
+entt::entity SpawnPlayer(entt::registry&              reg,
+                          int                          windowW,
+                          int                          windowH,
+                          SDL_Surface*                 sheet,
                           const std::vector<SDL_Rect>& frames) {
     auto player = reg.create();
     reg.emplace<Transform>(player,
@@ -34,10 +34,10 @@ entt::entity SpawnPlayer(entt::registry&          reg,
     return player;
 }
 
-void SpawnEnemies(entt::registry&          reg,
-                  int                      windowW,
-                  int                      windowH,
-                  SDL_Surface*             sheet,
+void SpawnEnemies(entt::registry&              reg,
+                  int                          windowW,
+                  int                          windowH,
+                  SDL_Surface*                 sheet,
                   const std::vector<SDL_Rect>& frames) {
     for (int i = 0; i < 15; ++i) {
         float xPos  = rand() % (windowW - 100);
@@ -49,6 +49,15 @@ void SpawnEnemies(entt::registry&          reg,
         reg.emplace<Renderable>(enemy, sheet, frames, false);
         reg.emplace<Collider>(enemy, SLIME_SPRITE_WIDTH, SLIME_SPRITE_HEIGHT);
     }
+}
+
+void DoRetry(entt::registry& reg, bool& gameOver, int windowW, int windowH,
+             SDL_Surface* playerSheet, const std::vector<SDL_Rect>& walkFrames,
+             SDL_Surface* enemySheet, const std::vector<SDL_Rect>& enemyFrames) {
+    reg.clear();
+    SpawnPlayer(reg, windowW, windowH, playerSheet, walkFrames);
+    SpawnEnemies(reg, windowW, windowH, enemySheet, enemyFrames);
+    gameOver = false;
 }
 
 int main(int argc, char** argv) {
@@ -71,13 +80,26 @@ int main(int argc, char** argv) {
     Text       GameOverText{"Game Over!",
                       {255, 0, 0, 255},
                       GameWindow.GetWidth() / 2 - 100,
-                      GameWindow.GetHeight() / 2 - 40,
+                      GameWindow.GetHeight() / 2 - 60,
                       64};
-    Text       RetryText{"Press R to Retry",
-                   {255, 255, 255, 255},
-                   GameWindow.GetWidth() / 2 - 120,
-                   GameWindow.GetHeight() / 2 + 40,
-                   32};
+    Text       RetryKeyText{"Press R to Retry",
+                      {200, 200, 200, 255},
+                      GameWindow.GetWidth() / 2 - 100,
+                      GameWindow.GetHeight() / 2 + 110,
+                      24};
+    Text       RetryBtnText{"Retry",
+                      {0, 0, 0, 255},
+                      GameWindow.GetWidth() / 2 - 28,
+                      GameWindow.GetHeight() / 2 + 22,
+                      32};
+
+    // Retry button rectangle — centered below game over text
+    SDL_Rect      retryBtnRect{GameWindow.GetWidth() / 2 - 75,
+                               GameWindow.GetHeight() / 2 + 10,
+                               150, 55};
+    Rectangle     RetryButton{retryBtnRect};
+    RetryButton.SetColor({255, 255, 255, 255});
+    RetryButton.SetHoverColor({180, 180, 180, 255});
 
     // Asset loading — happens once, survives retries
     SpriteSheet           playerSheet("game_assets/base_pack/Player/p1_spritesheet.png",
@@ -107,17 +129,38 @@ int main(int argc, char** argv) {
 
         while (SDL_PollEvent(&E)) {
             UIManager.HandleEvent(E);
+
             if (!gameOver) {
                 InputSystem(reg, E);
-            } else if (E.type == SDL_EVENT_KEY_DOWN && E.key.key == SDLK_R) {
-                // Retry — destroy all entities and respawn
-                reg.clear();
-                SpawnPlayer(reg, GameWindow.GetWidth(), GameWindow.GetHeight(),
-                            playerSheet.GetSurface(), walkFrames);
-                SpawnEnemies(reg, GameWindow.GetWidth(), GameWindow.GetHeight(),
-                             enemySheet.GetSurface(), enemyWalkFrames);
-                gameOver = false;
+            } else {
+                // R key retry
+                if (E.type == SDL_EVENT_KEY_DOWN && E.key.key == SDLK_R) {
+                    DoRetry(reg, gameOver,
+                            GameWindow.GetWidth(), GameWindow.GetHeight(),
+                            playerSheet.GetSurface(), walkFrames,
+                            enemySheet.GetSurface(), enemyWalkFrames);
+                }
+
+                // Button click retry — check manually since Rectangle::OnLeftClick
+                // needs subclassing for callbacks; this keeps it simple
+                if (E.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
+                    E.button.button == SDL_BUTTON_LEFT) {
+                    int mx = (int)E.button.x;
+                    int my = (int)E.button.y;
+                    if (mx >= retryBtnRect.x &&
+                        mx <= retryBtnRect.x + retryBtnRect.w &&
+                        my >= retryBtnRect.y &&
+                        my <= retryBtnRect.y + retryBtnRect.h) {
+                        DoRetry(reg, gameOver,
+                                GameWindow.GetWidth(), GameWindow.GetHeight(),
+                                playerSheet.GetSurface(), walkFrames,
+                                enemySheet.GetSurface(), enemyWalkFrames);
+                    }
+                }
+
+                RetryButton.HandleEvent(E);
             }
+
             if (E.type == SDL_EVENT_QUIT) {
                 TTF_Quit();
                 SDL_Quit();
@@ -136,7 +179,9 @@ int main(int argc, char** argv) {
 
         if (gameOver) {
             GameOverText.Render(GameWindow.GetSurface());
-            RetryText.Render(GameWindow.GetSurface());
+            RetryButton.Render(GameWindow.GetSurface());
+            RetryBtnText.Render(GameWindow.GetSurface());
+            RetryKeyText.Render(GameWindow.GetSurface());
         } else {
             LocationText.Render(GameWindow.GetSurface());
             ScaledExample.Render(GameWindow.GetSurface());
