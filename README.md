@@ -81,8 +81,6 @@ The game opens on a title screen. Pressing ENTER or clicking Play drops into the
 
 ## Documentation
 
-See `DOCUMENTATION.md` for a full breakdown of every component, system, and architectural decision.
-
 ## License
 
 Copyright (c) 2025 Tanner Davison. All Rights Reserved.
