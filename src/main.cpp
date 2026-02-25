@@ -32,11 +32,7 @@ int main(int argc, char** argv) {
 
     Text LocationText{"You are in space!!", 20, 20};
 
-    ScaledText ScaledExample{
-        "How big is this going to be needed? what if i kept on adding text ",
-        0,
-        200,
-        GameWindow.GetWidth()};
+    ScaledText ScaledExample{"Game on!", 0, 200, GameWindow.GetWidth()};
 
     Text ActionText{"Float Around", {100, 100, 100, 0}, 20, 80, 20};
 
