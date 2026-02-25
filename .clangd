@@ -1,7 +1,6 @@
 CompileFlags:
-  Add: 
-    - "-I${workspaceFolder}/include"
-    - "-I${workspaceFolder}/include/SDL2"
+  Add:
+    - "-I./include"
+    - "-I./include/SDL2"
 Index:
   Background: true
-
