@@ -1,10 +1,12 @@
+#include "Text.hpp"
 #include <Components.hpp>
 #include <SDL3/SDL.h>
-#include <entt/entt.hpp>
+#include <SurfaceUtils.hpp>
 #include <cmath>
+#include <entt/entt.hpp>
 #include <print>
 
-void MovementSystem(entt::registry& reg, float dt) {
+inline void MovementSystem(entt::registry& reg, float dt) {
     const bool* keys = SDL_GetKeyboardState(nullptr);
 
     auto playerView = reg.view<Transform, Velocity, GravityState, PlayerTag>();
@@ -17,8 +19,10 @@ void MovementSystem(entt::registry& reg, float dt) {
                 constexpr float friction = 3.0f;
                 v.dx -= v.dx * friction * dt;
                 v.dy -= v.dy * friction * dt;
-                if (std::abs(v.dx) < 0.5f) v.dx = 0.0f;
-                if (std::abs(v.dy) < 0.5f) v.dy = 0.0f;
+                if (std::abs(v.dx) < 0.5f)
+                    v.dx = 0.0f;
+                if (std::abs(v.dy) < 0.5f)
+                    v.dy = 0.0f;
             }
             t.x += v.dx * dt;
             t.y += v.dy * dt;
@@ -27,19 +31,22 @@ void MovementSystem(entt::registry& reg, float dt) {
             v.dx = 0.0f;
             v.dy = 0.0f;
 
-            bool horizKey = keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_D];
-            bool vertKey  = keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_S];
+            bool            horizKey = keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_D];
+            bool            vertKey  = keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_S];
             constexpr float friction = 3.0f;
 
             switch (g.direction) {
                 case GravityDir::DOWN:
                 case GravityDir::UP: {
                     // Horizontal walking still works
-                    if (keys[SDL_SCANCODE_A]) v.dx = -v.speed;
-                    if (keys[SDL_SCANCODE_D]) v.dx =  v.speed;
+                    if (keys[SDL_SCANCODE_A])
+                        v.dx = -v.speed;
+                    if (keys[SDL_SCANCODE_D])
+                        v.dx = v.speed;
                     if (!horizKey) {
                         v.dx -= v.dx * friction * dt;
-                        if (std::abs(v.dx) < 0.5f) v.dx = 0.0f;
+                        if (std::abs(v.dx) < 0.5f)
+                            v.dx = 0.0f;
                     }
                     t.x += v.dx * dt;
                     break;
@@ -47,11 +54,14 @@ void MovementSystem(entt::registry& reg, float dt) {
                 case GravityDir::LEFT:
                 case GravityDir::RIGHT: {
                     // Vertical walking still works
-                    if (keys[SDL_SCANCODE_W]) v.dy = -v.speed;
-                    if (keys[SDL_SCANCODE_S]) v.dy =  v.speed;
+                    if (keys[SDL_SCANCODE_W])
+                        v.dy = -v.speed;
+                    if (keys[SDL_SCANCODE_S])
+                        v.dy = v.speed;
                     if (!vertKey) {
                         v.dy -= v.dy * friction * dt;
-                        if (std::abs(v.dy) < 0.5f) v.dy = 0.0f;
+                        if (std::abs(v.dy) < 0.5f)
+                            v.dy = 0.0f;
                     }
                     t.y += v.dy * dt;
                     break;
@@ -61,7 +71,8 @@ void MovementSystem(entt::registry& reg, float dt) {
             // Apply gravity along the gravity axis
             if (!g.isGrounded) {
                 g.velocity += GRAVITY_FORCE * dt;
-                if (g.velocity > MAX_FALL_SPEED) g.velocity = MAX_FALL_SPEED;
+                if (g.velocity > MAX_FALL_SPEED)
+                    g.velocity = MAX_FALL_SPEED;
             }
 
             // Hold space boosts away from wall
@@ -71,10 +82,18 @@ void MovementSystem(entt::registry& reg, float dt) {
 
             // Apply gravity velocity in the correct direction
             switch (g.direction) {
-                case GravityDir::DOWN:  t.y += g.velocity * dt; break;
-                case GravityDir::UP:    t.y -= g.velocity * dt; break;
-                case GravityDir::LEFT:  t.x -= g.velocity * dt; break;
-                case GravityDir::RIGHT: t.x += g.velocity * dt; break;
+                case GravityDir::DOWN:
+                    t.y += g.velocity * dt;
+                    break;
+                case GravityDir::UP:
+                    t.y -= g.velocity * dt;
+                    break;
+                case GravityDir::LEFT:
+                    t.x -= g.velocity * dt;
+                    break;
+                case GravityDir::RIGHT:
+                    t.x += g.velocity * dt;
+                    break;
             }
 
             // Timer — once expired pull player to center and reset
@@ -98,7 +117,7 @@ void MovementSystem(entt::registry& reg, float dt) {
     });
 };
 
-void AnimationSystem(entt::registry& reg, float dt) {
+inline void AnimationSystem(entt::registry& reg, float dt) {
     auto view = reg.view<AnimationState>();
     view.each([dt](AnimationState& anim) {
         if (!anim.looping && anim.currentFrame == anim.totalFrames - 1)
@@ -112,62 +131,14 @@ void AnimationSystem(entt::registry& reg, float dt) {
     });
 }
 
-SDL_Surface* RotateSurface90CW(SDL_Surface* src) {
-    SDL_Surface* dst = SDL_CreateSurface(src->h, src->w, src->format);
-    SDL_SetSurfaceBlendMode(dst, SDL_BLENDMODE_BLEND);
-    SDL_LockSurface(src);
-    SDL_LockSurface(dst);
-    for (int y = 0; y < src->h; y++) {
-        for (int x = 0; x < src->w; x++) {
-            Uint32* srcPx = (Uint32*)((Uint8*)src->pixels + y * src->pitch + x * 4);
-            Uint32* dstPx = (Uint32*)((Uint8*)dst->pixels + x * dst->pitch + (src->h - 1 - y) * 4);
-            *dstPx = *srcPx;
-        }
-    }
-    SDL_UnlockSurface(src);
-    SDL_UnlockSurface(dst);
-    return dst;
-}
-
-SDL_Surface* RotateSurface90CCW(SDL_Surface* src) {
-    SDL_Surface* dst = SDL_CreateSurface(src->h, src->w, src->format);
-    SDL_SetSurfaceBlendMode(dst, SDL_BLENDMODE_BLEND);
-    SDL_LockSurface(src);
-    SDL_LockSurface(dst);
-    for (int y = 0; y < src->h; y++) {
-        for (int x = 0; x < src->w; x++) {
-            Uint32* srcPx = (Uint32*)((Uint8*)src->pixels + y * src->pitch + x * 4);
-            Uint32* dstPx = (Uint32*)((Uint8*)dst->pixels + (src->w - 1 - x) * dst->pitch + y * 4);
-            *dstPx = *srcPx;
-        }
-    }
-    SDL_UnlockSurface(src);
-    SDL_UnlockSurface(dst);
-    return dst;
-}
-
-SDL_Surface* RotateSurface180(SDL_Surface* src) {
-    SDL_Surface* dst = SDL_CreateSurface(src->w, src->h, src->format);
-    SDL_SetSurfaceBlendMode(dst, SDL_BLENDMODE_BLEND);
-    SDL_LockSurface(src);
-    SDL_LockSurface(dst);
-    for (int y = 0; y < src->h; y++) {
-        for (int x = 0; x < src->w; x++) {
-            Uint32* srcPx = (Uint32*)((Uint8*)src->pixels + y * src->pitch + x * 4);
-            Uint32* dstPx = (Uint32*)((Uint8*)dst->pixels + (src->h - 1 - y) * dst->pitch + (src->w - 1 - x) * 4);
-            *dstPx = *srcPx;
-        }
-    }
-    SDL_UnlockSurface(src);
-    SDL_UnlockSurface(dst);
-    return dst;
-}
-
-void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
+inline void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
     auto view = reg.view<Transform, Renderable, AnimationState>();
-    view.each([&reg, screen](entt::entity entity, const Transform& t,
-                              const Renderable& r, const AnimationState& anim) {
-        if (r.frames.empty()) return;
+    view.each([&reg, screen](entt::entity          entity,
+                             const Transform&      t,
+                             const Renderable&     r,
+                             const AnimationState& anim) {
+        if (r.frames.empty())
+            return;
 
         const SDL_Rect& src = r.frames[anim.currentFrame];
 
@@ -184,9 +155,11 @@ void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
             SDL_LockSurface(flipped);
             for (int y = 0; y < src.h; y++) {
                 for (int x = 0; x < src.w; x++) {
-                    Uint32* srcPx = (Uint32*)((Uint8*)frame->pixels + y * frame->pitch + x * 4);
-                    Uint32* dstPx = (Uint32*)((Uint8*)flipped->pixels + y * flipped->pitch + (src.w - 1 - x) * 4);
-                    *dstPx = *srcPx;
+                    Uint32* srcPx =
+                        (Uint32*)((Uint8*)frame->pixels + y * frame->pitch + x * 4);
+                    Uint32* dstPx = (Uint32*)((Uint8*)flipped->pixels + y * flipped->pitch +
+                                              (src.w - 1 - x) * 4);
+                    *dstPx        = *srcPx;
                 }
             }
             SDL_UnlockSurface(frame);
@@ -200,10 +173,18 @@ void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
         if (g && g->active) {
             SDL_Surface* rotated = nullptr;
             switch (g->direction) {
-                case GravityDir::DOWN:  rotated = nullptr;                   break;
-                case GravityDir::UP:    rotated = RotateSurface180(frame);   break;
-                case GravityDir::RIGHT: rotated = RotateSurface90CCW(frame); break;
-                case GravityDir::LEFT:  rotated = RotateSurface90CW(frame);  break;
+                case GravityDir::DOWN:
+                    rotated = nullptr;
+                    break;
+                case GravityDir::UP:
+                    rotated = RotateSurface180(frame);
+                    break;
+                case GravityDir::RIGHT:
+                    rotated = RotateSurface90CCW(frame);
+                    break;
+                case GravityDir::LEFT:
+                    rotated = RotateSurface90CW(frame);
+                    break;
             }
             if (rotated) {
                 SDL_DestroySurface(frame);
@@ -225,7 +206,8 @@ void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
                     // Sprite is now taller, shift up by the difference
                     renderY = (int)t.y - (frame->h - PLAYER_SPRITE_HEIGHT);
                     break;
-                default: break;
+                default:
+                    break;
             }
         }
         SDL_Rect dest = {renderX, renderY, frame->w, frame->h};
@@ -234,7 +216,7 @@ void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
     });
 }
 
-void InputSystem(entt::registry& reg, SDL_Event& e) {
+inline void InputSystem(entt::registry& reg, SDL_Event& e) {
     // WASD only works in free mode
     auto view = reg.view<PlayerTag, Velocity, Renderable, GravityState>();
     view.each([&e](Velocity& v, Renderable& r, GravityState& g) {
@@ -243,8 +225,14 @@ void InputSystem(entt::registry& reg, SDL_Event& e) {
         bool invertFlip = g.active && g.direction == GravityDir::UP;
         if (e.type == SDL_EVENT_KEY_DOWN) {
             switch (e.key.key) {
-                case SDLK_A: v.dx = -v.speed; r.flipH = !invertFlip; break;
-                case SDLK_D: v.dx =  v.speed; r.flipH =  invertFlip; break;
+                case SDLK_A:
+                    v.dx    = -v.speed;
+                    r.flipH = !invertFlip;
+                    break;
+                case SDLK_D:
+                    v.dx    = v.speed;
+                    r.flipH = invertFlip;
+                    break;
             }
         }
 
@@ -252,8 +240,12 @@ void InputSystem(entt::registry& reg, SDL_Event& e) {
             // Vertical movement only in free mode
             if (e.type == SDL_EVENT_KEY_DOWN) {
                 switch (e.key.key) {
-                    case SDLK_W: v.dy = -v.speed; break;
-                    case SDLK_S: v.dy =  v.speed; break;
+                    case SDLK_W:
+                        v.dy = -v.speed;
+                        break;
+                    case SDLK_S:
+                        v.dy = v.speed;
+                        break;
                 }
             }
         } else {
@@ -273,87 +265,102 @@ void InputSystem(entt::registry& reg, SDL_Event& e) {
     });
 }
 
-void CenterPullSystem(entt::registry& reg, float dt, int windowW, int windowH) {
+inline void CenterPullSystem(entt::registry& reg, float dt, int windowW, int windowH) {
     auto view = reg.view<Transform, Velocity, GravityState, PlayerTag>();
     view.each([dt, windowW, windowH](Transform& t, Velocity& v, GravityState& g) {
-        if (g.active) return; // only runs in free mode
+        if (g.active)
+            return; // only runs in free mode
 
         float centerX = windowW / 2.0f;
         float centerY = windowH / 2.0f;
 
-        float dx = centerX - t.x;
-        float dy = centerY - t.y;
+        float dx   = centerX - t.x;
+        float dy   = centerY - t.y;
         float dist = std::sqrt(dx * dx + dy * dy);
 
         // Only pull if far from center
         if (dist > 5.0f) {
             constexpr float pullSpeed = 200.0f;
-            float norm = pullSpeed / dist;
+            float           norm      = pullSpeed / dist;
             t.x += dx * norm * dt;
             t.y += dy * norm * dt;
         }
     });
 }
 
-void BoundsSystem(entt::registry& reg, int windowW, int windowH) {
+inline void BoundsSystem(entt::registry& reg, int windowW, int windowH) {
     auto view = reg.view<Transform, Collider, GravityState, Velocity, PlayerTag>();
-    view.each([windowW, windowH](Transform& t, const Collider& c,
-                                  GravityState& g, Velocity& v) {
-        auto activate = [&](GravityDir dir) {
-            // If already grounded on this same wall, don't do anything
-            if (g.active && g.isGrounded && g.direction == dir) return;
-            // Only reset timer on very first activation
-            if (!g.active) g.timer = 0.0f;
-            g.active     = true;
-            g.isGrounded = false;
-            g.velocity   = 0.0f;
-            g.direction  = dir;
-            v.dx         = 0.0f;
-            v.dy         = 0.0f;
-        };
+    view.each(
+        [windowW, windowH](Transform& t, const Collider& c, GravityState& g, Velocity& v) {
+            auto activate = [&](GravityDir dir) {
+                // If already grounded on this same wall, don't do anything
+                if (g.active && g.isGrounded && g.direction == dir)
+                    return;
+                // Only reset timer on very first activation
+                if (!g.active)
+                    g.timer = 0.0f;
+                g.active     = true;
+                g.isGrounded = false;
+                g.velocity   = 0.0f;
+                g.direction  = dir;
+                v.dx         = 0.0f;
+                v.dy         = 0.0f;
+            };
 
-        // Left wall — gravity pulls left
-        if (t.x < 0.0f) {
-            t.x = 0.0f;
-            activate(GravityDir::LEFT);
-        }
-        // Right wall — gravity pulls right
-        if (t.x + c.w > windowW) {
-            t.x = (float)(windowW - c.w);
-            activate(GravityDir::RIGHT);
-        }
-        // Top wall — gravity pulls up
-        if (t.y < 0.0f) {
-            t.y = 0.0f;
-            activate(GravityDir::UP);
-        }
-        // Bottom wall — gravity pulls down
-        if (t.y + c.h > windowH) {
-            t.y = (float)(windowH - c.h);
-            activate(GravityDir::DOWN);
-        }
-
-        // Check if player has landed on their gravity wall
-        if (g.active) {
-            switch (g.direction) {
-                case GravityDir::DOWN:
-                    if (t.y + c.h >= windowH) { g.isGrounded = true; g.velocity = 0.0f; }
-                    break;
-                case GravityDir::UP:
-                    if (t.y <= 0.0f) { g.isGrounded = true; g.velocity = 0.0f; }
-                    break;
-                case GravityDir::LEFT:
-                    if (t.x <= 0.0f) { g.isGrounded = true; g.velocity = 0.0f; }
-                    break;
-                case GravityDir::RIGHT:
-                    if (t.x + c.w >= windowW) { g.isGrounded = true; g.velocity = 0.0f; }
-                    break;
+            // Left wall — gravity pulls left
+            if (t.x < 0.0f) {
+                t.x = 0.0f;
+                activate(GravityDir::LEFT);
             }
-        }
-    });
+            // Right wall — gravity pulls right
+            if (t.x + c.w > windowW) {
+                t.x = (float)(windowW - c.w);
+                activate(GravityDir::RIGHT);
+            }
+            // Top wall — gravity pulls up
+            if (t.y < 0.0f) {
+                t.y = 0.0f;
+                activate(GravityDir::UP);
+            }
+            // Bottom wall — gravity pulls down
+            if (t.y + c.h > windowH) {
+                t.y = (float)(windowH - c.h);
+                activate(GravityDir::DOWN);
+            }
+
+            // Check if player has landed on their gravity wall
+            if (g.active) {
+                switch (g.direction) {
+                    case GravityDir::DOWN:
+                        if (t.y + c.h >= windowH) {
+                            g.isGrounded = true;
+                            g.velocity   = 0.0f;
+                        }
+                        break;
+                    case GravityDir::UP:
+                        if (t.y <= 0.0f) {
+                            g.isGrounded = true;
+                            g.velocity   = 0.0f;
+                        }
+                        break;
+                    case GravityDir::LEFT:
+                        if (t.x <= 0.0f) {
+                            g.isGrounded = true;
+                            g.velocity   = 0.0f;
+                        }
+                        break;
+                    case GravityDir::RIGHT:
+                        if (t.x + c.w >= windowW) {
+                            g.isGrounded = true;
+                            g.velocity   = 0.0f;
+                        }
+                        break;
+                }
+            }
+        });
 }
 
-void CollisionSystem(entt::registry& reg, float dt, bool& gameOver) {
+inline void CollisionSystem(entt::registry& reg, float dt, bool& gameOver) {
     auto timerView = reg.view<InvincibilityTimer>();
     timerView.each([dt](InvincibilityTimer& inv) {
         if (inv.isInvincible) {
@@ -368,9 +375,12 @@ void CollisionSystem(entt::registry& reg, float dt, bool& gameOver) {
     auto playerView = reg.view<PlayerTag, Transform, Collider, Health, InvincibilityTimer>();
     auto enemyView  = reg.view<Transform, Collider>(entt::exclude<PlayerTag>);
 
-    playerView.each([&](const Transform& pt, const Collider& pc,
-                        Health& health, InvincibilityTimer& inv) {
-        if (inv.isInvincible) return;
+    playerView.each([&](const Transform&    pt,
+                        const Collider&     pc,
+                        Health&             health,
+                        InvincibilityTimer& inv) {
+        if (inv.isInvincible)
+            return;
 
         enemyView.each([&](const Transform& et, const Collider& ec) {
             bool overlapX = pt.x < et.x + ec.w && pt.x + pc.w > et.x;
@@ -388,5 +398,36 @@ void CollisionSystem(entt::registry& reg, float dt, bool& gameOver) {
                 }
             }
         });
+    });
+}
+inline void HUDSystem(entt::registry& reg,
+                      SDL_Surface*    screen,
+                      int             windowW,
+                      Text*           healthText) {
+    auto view = reg.view<PlayerTag, Health>();
+    view.each([&](const Health& h) {
+        constexpr int barW       = 200;
+        constexpr int barH       = 15;
+        const int     barX       = windowW - barW - 20; // is the -20 essentially padding?
+        constexpr int barY       = 20;
+        SDL_Rect      background = {barX, barY, barW, barH};
+        int      fillW = static_cast<int>(barW * (h.current / h.max)); // what is this for?
+        SDL_Rect foreground = {
+            barX, barY, fillW, barH}; // this is the loader that sits over the background?
+
+        const SDL_PixelFormatDetails* fmt = SDL_GetPixelFormatDetails(
+            screen->format); // what does this do and why is it needed?
+        // Dark Gray background
+        SDL_FillSurfaceRect(screen, &background, SDL_MapRGB(fmt, nullptr, 50, 50, 50));
+        // Green/Yellow/red fill based on health percentage
+        float pct = h.current / h.max;
+        Uint8 r   = static_cast<Uint8>(255 * (1.0f - pct)); // more red as health drops
+        Uint8 g   = static_cast<Uint8>(255 * pct);          // more green as health increases
+        SDL_FillSurfaceRect(screen, &foreground, SDL_MapRGB(fmt, nullptr, r, g, 0));
+        std::string label =
+            std::to_string((int)h.current) + " / " + std::to_string((int)h.max);
+        healthText->SetPosition(barX, barY - 20);
+        healthText->CreateSurface(label);
+        healthText->Render(screen);
     });
 }

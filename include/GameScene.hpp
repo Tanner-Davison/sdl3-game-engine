@@ -19,9 +19,9 @@ class GameScene : public Scene {
         mWindow  = &window;
         gameOver = false;
 
-        playerSheet = std::make_unique<SpriteSheet>(
-            "game_assets/base_pack/Player/p1_spritesheet.png",
-            "game_assets/base_pack/Player/p1_spritesheet.txt");
+        playerSheet =
+            std::make_unique<SpriteSheet>("game_assets/base_pack/Player/p1_spritesheet.png",
+                                          "game_assets/base_pack/Player/p1_spritesheet.txt");
         walkFrames = playerSheet->GetAnimation("p1_walk");
 
         enemySheet = std::make_unique<SpriteSheet>(
@@ -29,22 +29,28 @@ class GameScene : public Scene {
             "game_assets/base_pack/Enemies/enemies_spritesheet.txt");
         enemyWalkFrames = enemySheet->GetAnimation("slimeWalk");
 
-        background   = std::make_unique<Image>("game_assets/base_pack/bg_castle.png",
-                                               nullptr, FitMode::COVER);
+        background = std::make_unique<Image>(
+            "game_assets/base_pack/bg_castle.png", nullptr, FitMode::COVER);
         locationText = std::make_unique<Text>("You are in space!!", 20, 20);
-        actionText   = std::make_unique<Text>("Float Around",
-                                              SDL_Color{100, 100, 100, 0}, 20, 80, 20);
 
-        gameOverText = std::make_unique<Text>("Game Over!", SDL_Color{255, 0, 0, 255},
+        actionText =
+            std::make_unique<Text>("Float Around", SDL_Color{100, 100, 100, 0}, 20, 80, 20);
+
+        gameOverText = std::make_unique<Text>("Game Over!",
+                                              SDL_Color{255, 0, 0, 255},
                                               window.GetWidth() / 2 - 100,
-                                              window.GetHeight() / 2 - 60, 64);
-        retryBtnText = std::make_unique<Text>("Retry", SDL_Color{0, 0, 0, 255},
+                                              window.GetHeight() / 2 - 60,
+                                              64);
+        retryBtnText = std::make_unique<Text>("Retry",
+                                              SDL_Color{0, 0, 0, 255},
                                               window.GetWidth() / 2 - 28,
-                                              window.GetHeight() / 2 + 22, 32);
+                                              window.GetHeight() / 2 + 22,
+                                              32);
         retryKeyText = std::make_unique<Text>("Press R to Retry",
                                               SDL_Color{200, 200, 200, 255},
                                               window.GetWidth() / 2 - 100,
-                                              window.GetHeight() / 2 + 110, 24);
+                                              window.GetHeight() / 2 + 110,
+                                              24);
 
         retryBtnRect = {window.GetWidth() / 2 - 75, window.GetHeight() / 2 + 10, 150, 55};
         retryButton  = std::make_unique<Rectangle>(retryBtnRect);
@@ -60,7 +66,8 @@ class GameScene : public Scene {
     }
 
     bool HandleEvent(SDL_Event& e) override {
-        if (e.type == SDL_EVENT_QUIT) return false;
+        if (e.type == SDL_EVENT_QUIT)
+            return false;
 
         if (!gameOver) {
             InputSystem(reg, e);
@@ -72,10 +79,8 @@ class GameScene : public Scene {
                 e.button.button == SDL_BUTTON_LEFT) {
                 int mx = (int)e.button.x;
                 int my = (int)e.button.y;
-                if (mx >= retryBtnRect.x &&
-                    mx <= retryBtnRect.x + retryBtnRect.w &&
-                    my >= retryBtnRect.y &&
-                    my <= retryBtnRect.y + retryBtnRect.h) {
+                if (mx >= retryBtnRect.x && mx <= retryBtnRect.x + retryBtnRect.w &&
+                    my >= retryBtnRect.y && my <= retryBtnRect.y + retryBtnRect.h) {
                     Respawn();
                 }
             }
@@ -107,6 +112,7 @@ class GameScene : public Scene {
             locationText->Render(window.GetSurface());
             actionText->Render(window.GetSurface());
             RenderSystem(reg, window.GetSurface());
+            HUDSystem(reg, window.GetSurface(), window.GetWidth(), healthText.get());
         }
 
         window.Update();
@@ -129,9 +135,11 @@ class GameScene : public Scene {
     std::unique_ptr<Text>      retryBtnText;
     std::unique_ptr<Text>      retryKeyText;
     std::unique_ptr<Rectangle> retryButton;
+    std::unique_ptr<Text>      healthText;
     SDL_Rect                   retryBtnRect{};
 
     void Spawn() {
+        healthText  = std::make_unique<Text>("100", SDL_Color{255, 255, 255, 255}, 0, 0, 16);
         auto player = reg.create();
         reg.emplace<Transform>(player,
                                (float)(mWindow->GetWidth() / 2 - 33),
@@ -151,7 +159,8 @@ class GameScene : public Scene {
             auto  enemy = reg.create();
             reg.emplace<Transform>(enemy, xPos, yPos);
             reg.emplace<Velocity>(enemy);
-            reg.emplace<AnimationState>(enemy, 0, (int)enemyWalkFrames.size(), 0.0f, 7.0f, true);
+            reg.emplace<AnimationState>(
+                enemy, 0, (int)enemyWalkFrames.size(), 0.0f, 7.0f, true);
             reg.emplace<Renderable>(enemy, enemySheet->GetSurface(), enemyWalkFrames, false);
             reg.emplace<Collider>(enemy, SLIME_SPRITE_WIDTH, SLIME_SPRITE_HEIGHT);
         }

@@ -133,11 +133,50 @@ class Text {
     void SetFontSize(int fontsize);
     int  mFontSize = 24; ///< Font size in points
 
+    /// Returns the pixel width and height of a string at a given font size.
+    /// Useful for centering text without creating a full Text object.
+    /// @param content  The string to measure
+    /// @param fontSize Font size in points
+    /// @return SDL_Point where x = width, y = height
+    static SDL_Point Measure(const std::string& content, int fontSize) {
+        TTF_Font* font = TTF_OpenFont("fonts/Roboto-VariableFont_wdth,wght.ttf", fontSize);
+        if (!font)
+            return {0, 0};
+        int w = 0, h = 0;
+        TTF_GetStringSize(font, content.c_str(), 0, &w, &h);
+        TTF_CloseFont(font);
+        return {w, h};
+    }
+
+    /// Returns the x position to horizontally center text within a rect.
+    static int CenterX(const std::string& content, int fontSize, const SDL_Rect& rect) {
+        return rect.x + (rect.w - Measure(content, fontSize).x) / 2;
+    }
+
+    /// Returns the y position to vertically center text within a rect.
+    static int CenterY(int fontSize, const SDL_Rect& rect) {
+        return rect.y + (rect.h - Measure("A", fontSize).y) / 2;
+    }
+
+    /// Returns both x and y to center text within a rect.
+    static SDL_Point CenterInRect(const std::string& content,
+                                  int                fontSize,
+                                  const SDL_Rect&    rect) {
+        return {CenterX(content, fontSize, rect), CenterY(fontSize, rect)};
+    }
+    // utility funciton Sets position of the text
+    void SetPosition(int x, int y) {
+        mPosX                   = x;
+        mPosY                   = y;
+        mDestinationRectangle.x = x;
+        mDestinationRectangle.y = y;
+    }
+
   private:
     SDL_Surface* mTextSurface = nullptr;            ///< Rendered text surface
     SDL_Rect     mDestinationRectangle{0, 0, 0, 0}; ///< Render destination
-    SDL_Color mColor{255, 255, 255, 255}; ///< Foreground color (white default)
-    std::optional<SDL_Color> mColorBg;    ///< Optional background color
-    int                      mPosX = 0;   ///< X position
-    int                      mPosY = 0;   ///< Y position
+    SDL_Color    mColor{255, 255, 255, 255};        ///< Foreground color (white default)
+    std::optional<SDL_Color> mColorBg;              ///< Optional background color
+    int                      mPosX = 0;             ///< X position
+    int                      mPosY = 0;             ///< Y position
 };

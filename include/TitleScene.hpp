@@ -2,6 +2,7 @@
 #include "Image.hpp"
 #include "Rectangle.hpp"
 #include "Scene.hpp"
+#include "SurfaceUtils.hpp"
 #include "Text.hpp"
 #include "Window.hpp"
 #include <SDL3/SDL.h>
@@ -15,23 +16,29 @@ class TitleScene : public Scene {
         background = std::make_unique<Image>("game_assets/base_pack/bg_castle.png",
                                              nullptr, FitMode::COVER);
 
+        SDL_Rect windowRect = {0, 0, window.GetWidth(), window.GetHeight()};
+
+        // Title — centered horizontally, above center vertically
+        auto [titleX, titleY] = Text::CenterInRect("SDL Sandbox", 72, windowRect);
         titleText = std::make_unique<Text>("SDL Sandbox", SDL_Color{255, 255, 255, 255},
-                                           window.GetWidth() / 2 - 150,
-                                           window.GetHeight() / 2 - 100, 72);
+                                           titleX, titleY - 80, 72);
 
-        startBtnText = std::make_unique<Text>("Play", SDL_Color{0, 0, 0, 255},
-                                              window.GetWidth() / 2 - 22,
-                                              window.GetHeight() / 2 + 18, 32);
-
-        startKeyText = std::make_unique<Text>("Press ENTER to Play",
-                                              SDL_Color{200, 200, 200, 255},
-                                              window.GetWidth() / 2 - 130,
-                                              window.GetHeight() / 2 + 110, 24);
-
-        startBtnRect = {window.GetWidth() / 2 - 75, window.GetHeight() / 2 + 5, 150, 55};
+        // Button — centered in window, slightly below center
+        startBtnRect = CenterRect(windowRect, 150, 55, 20);
         startButton  = std::make_unique<Rectangle>(startBtnRect);
         startButton->SetColor({255, 255, 255, 255});
         startButton->SetHoverColor({180, 180, 180, 255});
+
+        // Button text — centered inside the button
+        auto [btnX, btnY] = Text::CenterInRect("Play", 32, startBtnRect);
+        startBtnText = std::make_unique<Text>("Play", SDL_Color{0, 0, 0, 255},
+                                              btnX, btnY, 32);
+
+        // Hint text — centered horizontally, below the button
+        auto [hintX, hintY] = Text::CenterInRect("Press ENTER to Play", 24, windowRect);
+        startKeyText = std::make_unique<Text>("Press ENTER to Play",
+                                              SDL_Color{200, 200, 200, 255},
+                                              hintX, startBtnRect.y + startBtnRect.h + 20, 24);
     }
 
     void Unload() override {}
