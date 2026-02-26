@@ -1,12 +1,13 @@
 #include "Image.hpp"
 #include <SDL3_image/SDL_image.h>
+#include <print>
 
 Image::Image(std::string File, const SDL_PixelFormatDetails* PreferredFormat,
              FitMode mode)
     : mImageSurface{IMG_Load(File.c_str())}
     , fitMode{mode} {
     if (!mImageSurface) {
-        std::cout << "Failed to load image: " << File << ":\n" << SDL_GetError();
+        std::print("Failed to load image: {}:\n{}\n", File, SDL_GetError());
     } else {
         SDL_SetSurfaceBlendMode(mImageSurface, SDL_BLENDMODE_BLEND);
         originalWidth   = mImageSurface->w;
@@ -28,7 +29,7 @@ Image::Image(std::string File, const SDL_PixelFormatDetails* PreferredFormat,
             SDL_DestroySurface(mImageSurface);
             mImageSurface = Converted;
         } else {
-            std::cout << "Error converting surface: " << SDL_GetError();
+            std::print("Error converting surface: {}\n", SDL_GetError());
         }
     }
 }

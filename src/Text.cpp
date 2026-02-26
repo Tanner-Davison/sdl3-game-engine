@@ -1,8 +1,8 @@
 #include "Text.hpp"
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
-#include <iostream>
 #include <optional>
+#include <print>
 #include <string>
 
 Text::Text(std::string Content, int posX, int posY, int fontSize)
@@ -21,7 +21,7 @@ Text::Text(std::string Content, SDL_Color ColorFg,
     , mPosX{posX}
     , mPosY{posY} {
     if (!mFont) {
-        std::cerr << "Error loading font: " << SDL_GetError() << '\n';
+        std::print("Error loading font: {}\n", SDL_GetError());
         return;
     }
     CreateSurface(Content);
@@ -40,7 +40,7 @@ void Text::Render(SDL_Surface* DestinationSurface) {
 
 void Text::CreateSurface(std::string Content) {
     if (!mFont) {
-        std::cerr << "Cannot create surface: font is null\n";
+        std::print("Cannot create surface: font is null\n");
         return;
     }
     if (Content.empty()) return;
@@ -58,7 +58,7 @@ void Text::CreateSurface(std::string Content) {
         mTextSurface = newSurface;
         mDestinationRectangle = {mPosX, mPosY, newSurface->w, newSurface->h};
     } else {
-        std::cerr << "Error creating text surface: " << SDL_GetError() << '\n';
+        std::print("Error creating text surface: {}\n", SDL_GetError());
     }
 }
 
