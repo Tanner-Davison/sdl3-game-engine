@@ -102,6 +102,7 @@ Image::~Image() {
 }
 
 void Image::RebakeScaled(int w, int h) {
+    if (!mImageSurface) return;
     if (mScaledSurface) {
         SDL_DestroySurface(mScaledSurface);
         mScaledSurface = nullptr;
@@ -122,7 +123,9 @@ void Image::RebakeScaled(int w, int h) {
         srcCrop.h    = newSrcH;
     }
 
-    mScaledSurface = SDL_CreateSurface(w, h, mImageSurface->format);
+    // Use RGBA8888 explicitly so the blit onto the window surface always works
+    // regardless of whether the source image has an alpha channel (e.g. JPEG)
+    mScaledSurface = SDL_CreateSurface(w, h, SDL_PIXELFORMAT_RGBA8888);
     SDL_SetSurfaceBlendMode(mScaledSurface, SDL_BLENDMODE_NONE);
     SDL_Rect dest = {0, 0, w, h};
     SDL_BlitSurfaceScaled(mImageSurface, &srcCrop, mScaledSurface, &dest, SDL_SCALEMODE_LINEAR);
@@ -132,6 +135,8 @@ void Image::RebakeScaled(int w, int h) {
 }
 
 void Image::Render(SDL_Surface* DestinationSurface) {
+    if (!mImageSurface) return;
+
     // PRESCALED: bake once, rebake on resize, then 1:1 blit every frame
     if (fitMode == FitMode::PRESCALED) {
         if (!mScaledSurface ||
@@ -208,10 +213,11 @@ FitMode Image::GetFitMode() const { return fitMode; }
 
 void Image::SetDestinationRectangle(SDL_Rect Requested) {
     switch (fitMode) {
-        case FitMode::CONTAIN: HandleContain(Requested); break;
-        case FitMode::COVER:   HandleCover(Requested);   break;
-        case FitMode::STRETCH: HandleStretch(Requested); break;
-        case FitMode::SRCSIZE: HandleSrcSize(Requested); break;
+        case FitMode::CONTAIN:   HandleContain(Requested);  break;
+        case FitMode::COVER:     HandleCover(Requested);    break;
+        case FitMode::STRETCH:   HandleStretch(Requested);  break;
+        case FitMode::SRCSIZE:   HandleSrcSize(Requested);  break;
+        case FitMode::PRESCALED: break; // handled entirely in Render via RebakeScaled
     }
 }
 

@@ -36,7 +36,7 @@ inline void HUDSystem(entt::registry& reg,
         healthText->Render(screen);
 
         // Zero gravity countdown
-        if (g.punishmentTimer > 0.0f) {
+        if (g.punishmentTimer > 0.0f && gravityText) {
             int         secs = static_cast<int>(std::ceil(g.punishmentTimer));
             std::string msg  = "Zero Gravity Activated for " + std::to_string(secs) + " s";
             gravityText->SetPosition(windowW / 2 - 160, 20);

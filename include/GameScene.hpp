@@ -37,7 +37,7 @@ class GameScene : public Scene {
         enemyWalkFrames = enemySheet->GetAnimation("slimeWalk");
 
         background = std::make_unique<Image>(
-            "game_assets/base_pack/deepspace_scene.png", nullptr, FitMode::PRESCALED);
+            "game_assets/base_pack/deepspace_scene.jpg", nullptr, FitMode::PRESCALED);
         locationText = std::make_unique<Text>("You are in space!!", 20, 20);
 
         actionText =

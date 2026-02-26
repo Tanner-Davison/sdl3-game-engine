@@ -43,6 +43,7 @@ void Text::CreateSurface(std::string Content) {
         std::cerr << "Cannot create surface: font is null\n";
         return;
     }
+    if (Content.empty()) return;
 
     SDL_Surface* newSurface = nullptr;
     if (mColorBg.has_value()) {
