@@ -1,33 +1,40 @@
 # SDL Sandbox
 
-Author: Tanner Davison 
+Author: Tanner Davison
 
-A 2D game engine foundation built on SDL3 and EnTT. This project is a personal sandbox for building and testing the core systems needed for a platformer engine — windowing, sprite animation, sprite sheets, an Entity Component System, collision detection, scene management, and a delta-time game loop.
+A 2D game engine foundation built on SDL3 and EnTT. This project is a personal sandbox for building and testing the core systems needed for a platformer engine — windowing, sprite animation, sprite sheets, an Entity Component System (ECS), collision detection, scene management, and a delta-time game loop.
+
+---
 
 ## Architecture Overview
 
 ### ECS (Entity Component System)
-The core game simulation runs through EnTT. Components are plain data structs defined in `Components.hpp`, and systems are free functions in `Systems.hpp`.
+The core game simulation runs through EnTT. Components are plain data structs defined in `Components.hpp`, and systems are free functions split into individual headers under `include/systems/`, aggregated by `Systems.hpp`.
 
 **Components:**
 - `Transform` — world position (x, y)
 - `Velocity` — movement direction, speed, and friction
-- `AnimationState` — current frame, timer, fps, looping
-- `Renderable` — sprite sheet surface, frame rects, flip state
-- `Health` — current and max health
-- `Collider` — AABB width and height
-- `InvincibilityTimer` — post-hit grace period
-- `GravityState` — gravity direction, velocity, grounded state, and 60s timer
-- `PlayerTag` — empty tag that marks the player entity
+- `AnimationState` — current frame, timer, fps, looping flag, and current animation ID
+- `AnimationSet` — full set of frame rect vectors per animation (idle, walk, jump, hurt, duck, front)
+- `Renderable` — sprite sheet surface, active frame rects, and horizontal flip state
+- `FlipCache` — lazily-built per-frame cache of pre-flipped surfaces, invalidated on animation change
+- `Health` — current and max health values
+- `Collider` — AABB width and height, updated when crouching
+- `InvincibilityTimer` — post-hit grace period with remaining time and active flag
+- `GravityState` — gravity direction, velocity along gravity axis, grounded state, crouch state, and punishment timer
+- `PlayerTag` — empty tag marking the player entity
+- `EnemyTag` — empty tag marking enemy entities
 
-**Systems:**
-- `InputSystem` — WASD/space input, handles free mode and gravity mode separately
-- `MovementSystem` — velocity, friction, gravity force, jump boost, and gravity timer
-- `CenterPullSystem` — pulls player back to screen center after gravity expires
-- `BoundsSystem` — clamps player to screen edges, triggers gravity mode on wall contact
-- `AnimationSystem` — advances animation frames using delta time
-- `RenderSystem` — blits current frame to screen, handles flip and gravity-based sprite rotation
-- `CollisionSystem` — AABB player vs enemy detection, applies damage and invincibility
+**Systems (`include/systems/`):**
+- `InputSystem` — WASD/space/ctrl input, handles gravity and free mode separately
+- `MovementSystem` — velocity, friction, gravity force, jump boost, crouch deceleration
+- `PlayerStateSystem` — animation priority state machine (hurt > crouch > jump > walk > idle), manages collider and position on crouch transitions
+- `AnimationSystem` — advances animation frames using delta time, respects looping flag
+- `RenderSystem` — extracts frames from original sheet, applies flip cache, gravity rotation, wall-flush position offset, and invincibility flash. Includes debug hitbox rendering
+- `CollisionSystem` — AABB player vs enemy detection, applies damage, triggers zero gravity punishment
+- `BoundsSystem` — clamps player to screen edges, activates gravity on wall contact, ticks punishment timer
+- `CenterPullSystem` — pulls player toward screen center during zero gravity punishment
+- `HUDSystem` — renders health bar and zero gravity countdown timer
 
 ### Scene System
 Game states are organized as scenes that inherit from a `Scene` base class. `SceneManager` owns the active scene and handles transitions automatically when `NextScene()` returns a non-null value.
@@ -35,12 +42,19 @@ Game states are organized as scenes that inherit from a `Scene` base class. `Sce
 - `TitleScene` — opening screen with Play button, transitions to `GameScene`
 - `GameScene` — main gameplay, owns the ECS registry and all assets
 
+To add a new level, create a class that inherits from `Scene` and return it from `GameScene::NextScene()` when the win condition is met.
+
 ### Supporting Classes
 - **Window** — RAII wrapper around `SDL_Window`. Uses surface-based rendering. Note: `SDL_GetWindowSurface` and `SDL_CreateRenderer` are mutually exclusive — do not create a renderer on this window.
-- **Image** — Loads and blits a single image surface with configurable `FitMode` (CONTAIN, COVER, STRETCH, SRCSIZE).
-- **SpriteSheet** — Parses a texture atlas (text or XML format) and exposes frame rects and animation sequences by name.
-- **UI / Button / Rectangle / SettingsMenu** — Basic interactive UI layer with hover detection and click callbacks.
-- **Text / ScaledText** — SDL3_ttf text rendering with optional background color and auto-scaling to a target width.
+- **Image** — Loads and blits a single image surface with configurable `FitMode`:
+  - `CONTAIN` — letterboxed to fit within bounds
+  - `COVER` — cropped to fill bounds, preserving aspect ratio
+  - `STRETCH` — fills bounds ignoring aspect ratio
+  - `SRCSIZE` — renders at original pixel dimensions
+  - `PRESCALED` — bakes a scaled surface once at first render, rebakes on window resize, then blits 1:1 every frame. Use this for backgrounds to avoid per-frame software scaling.
+- **SpriteSheet** — Parses a texture atlas (text or XML format) and exposes named frame rects and animation sequences.
+- **Text** — SDL3_ttf text rendering with optional background color. `CreateSurface` safely ignores empty strings.
+- **UI / Button / Rectangle** — Basic interactive UI with hover detection and click callbacks.
 - **ErrorHandling** — Lightweight SDL error checking helper.
 
 ---
@@ -75,11 +89,11 @@ macOS Intel:
 vcpkg install sdl3 "sdl3-image[png]" sdl3-ttf entt --triplet x64-osx
 ```
 
+> **Note:** JPEG support is not included by default on macOS. Use PNG assets, or convert JPEGs with `sips -s format png input.jpg --out output.png`.
+
 ---
 
 ### Building with Presets
-
-This project includes `CMakePresets.json` for one-command builds on each platform.
 
 **Linux:**
 ```bash
@@ -108,7 +122,6 @@ cmake --build --preset mac-intel
 
 ### Manual CMake (no presets)
 
-If you prefer to configure manually:
 ```bash
 cmake -B build \
   -DCMAKE_TOOLCHAIN_FILE=~/tools/vcpkg/scripts/buildsystems/vcpkg.cmake \
@@ -122,38 +135,49 @@ cmake --build build
 
 ```
 sdl-sandbox/
-├── src/                 # Implementation files
-│   └── TitleScene.cpp   # NextScene() defined here to avoid circular includes
-├── include/             # Header files
-│   ├── Components.hpp   # ECS component definitions and constants
-│   ├── Systems.hpp      # ECS system functions
-│   ├── Scene.hpp        # Abstract scene base class
-│   ├── SceneManager.hpp # Owns and transitions between scenes
-│   ├── TitleScene.hpp   # Opening title screen
-│   └── GameScene.hpp    # Main gameplay scene
-├── game_assets/         # Sprites, backgrounds, tilesets
-├── fonts/               # TTF font files
-├── CMakePresets.json    # Platform build presets
-└── MyDoxyFile           # Doxygen configuration
+├── src/                    # Implementation files (.cpp)
+├── include/                # Header files
+│   ├── systems/            # Individual ECS system headers
+│   ├── Components.hpp      # All ECS component definitions and game constants
+│   ├── Systems.hpp         # Aggregator — includes all system headers
+│   ├── Scene.hpp           # Abstract scene base class
+│   ├── SceneManager.hpp    # Owns and transitions between scenes
+│   ├── GameScene.hpp       # Main gameplay scene
+│   ├── TitleScene.hpp      # Opening title screen
+│   ├── Image.hpp           # Image loading and rendering
+│   ├── SpriteSheet.hpp     # Texture atlas parser
+│   ├── Text.hpp            # TTF text rendering
+│   ├── Window.hpp          # SDL window wrapper
+│   └── SurfaceUtils.hpp    # Surface rotation helpers
+├── game_assets/            # Sprites, backgrounds, tilesets
+├── fonts/                  # TTF font files
+└── CMakePresets.json       # Platform build presets
 ```
+
+---
+
+## Controls
+
+| Key | Action |
+|-----|--------|
+| A / D | Move left / right (or up/down on side walls) |
+| Space | Jump (gravity mode only) |
+| Left Ctrl | Crouch — reduces hitbox, decelerates with friction |
+| R | Retry after game over |
 
 ---
 
 ## Current Demo
 
-The game opens on a title screen. Pressing ENTER or clicking Play drops into the gameplay scene where a player and 15 randomly-positioned slime enemies spawn on a castle background.
+The game opens on a title screen. Pressing ENTER or clicking Play drops into the gameplay scene where a player and 15 randomly-positioned slime enemies spawn.
 
-**Free mode:** WASD to move with floaty friction-based deceleration.
+**Free mode:** WASD to move with friction-based deceleration.
 
-**Gravity mode:** Triggered by touching any screen wall. Gravity pulls the player toward whichever wall they hit. The player sprite rotates to always appear upright relative to their gravity wall. Perpendicular walking along the wall still works. Space bar jumps away from the wall with variable height based on how long space is held. Hitting a new wall mid-air switches gravity direction instantly. The gravity mode timer runs for 60 seconds from first wall contact and is never reset by subsequent wall hits. When it expires, the player is pulled back to screen center and free mode resumes.
+**Gravity mode:** Triggered by touching any screen wall. Gravity pulls the player toward that wall. The sprite rotates to appear upright relative to the gravity wall. Walking perpendicular to the wall, jumping, and crouching all work on any wall.
 
-**Combat:** Each slime hit deals 15 damage with 1.5 seconds of invincibility after each hit. At 0 health a game over screen appears with a clickable Retry button and R key shortcut that clears all entities and respawns everything fresh.
+**Zero gravity punishment:** Taking a hit from an enemy releases the player into free-float mode for 15 seconds. A countdown HUD element displays the remaining time. `CenterPullSystem` gently pulls the player toward the screen center during this period. Gravity resumes automatically when the timer expires.
 
----
-
-## Documentation
-
-See `DOCUMENTATION.md` for a full breakdown of every component, system, and architectural decision.
+**Combat:** Each slime hit deals 15 damage with 1.5 seconds of invincibility. At 0 health a game over screen appears with a Retry button (click or press R) that respawns everything fresh.
 
 ---
 
