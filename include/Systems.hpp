@@ -5,6 +5,7 @@
 #include <cmath>
 #include <entt/entt.hpp>
 #include <print>
+#define DEBUG_HITBOXES
 
 inline void MovementSystem(entt::registry& reg, float dt, int windowW) {
     const bool* keys = SDL_GetKeyboardState(nullptr);
@@ -237,6 +238,38 @@ inline void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
         SDL_BlitSurface(frame, nullptr, screen, &dest);
         SDL_SetSurfaceColorMod(frame, 255, 255, 255); // reset mod before destroy
         SDL_DestroySurface(frame);
+
+#ifdef DEBUG_HITBOXES
+        // Draw collider outline for debugging — remove DEBUG_HITBOXES define to disable
+        auto* col = reg.try_get<Collider>(entity);
+        if (col) {
+            const SDL_PixelFormatDetails* fmt = SDL_GetPixelFormatDetails(screen->format);
+            // Player = green, Enemy = red
+            Uint32        color     = reg.all_of<PlayerTag>(entity)
+                                          ? SDL_MapRGB(fmt, nullptr, 0, 255, 0)
+                                          : SDL_MapRGB(fmt, nullptr, 255, 0, 0);
+            constexpr int thickness = 1; // border thickness in pixels
+            int           hx        = static_cast<int>(t.x);
+            int           hy        = static_cast<int>(t.y);
+            // Swap collider dimensions when on a side wall to match rotated sprite
+            auto* gs       = reg.try_get<GravityState>(entity);
+            bool  sidewall = gs && (gs->direction == GravityDir::LEFT ||
+                                    gs->direction == GravityDir::RIGHT);
+            int   cw       = sidewall ? col->h : col->w;
+            int   ch       = sidewall ? col->w : col->h;
+            // Right wall shifts renderX left to keep sprite flush — match that offset here
+            if (gs && gs->direction == GravityDir::RIGHT)
+                hx -= (col->h - PLAYER_SPRITE_WIDTH);
+            SDL_Rect top    = {hx,      hy,      cw,        thickness};
+            SDL_Rect bottom = {hx,      hy + ch, cw,        thickness};
+            SDL_Rect left   = {hx,      hy,      thickness, ch};
+            SDL_Rect right  = {hx + cw, hy,      thickness, ch};
+            SDL_FillSurfaceRect(screen, &top, color);
+            SDL_FillSurfaceRect(screen, &bottom, color);
+            SDL_FillSurfaceRect(screen, &left, color);
+            SDL_FillSurfaceRect(screen, &right, color);
+        }
+#endif
     });
 }
 
@@ -497,8 +530,18 @@ inline void CollisionSystem(entt::registry& reg, float dt, bool& gameOver) {
             return;
 
         enemyView.each([&](const Transform& et, const Collider& ec) {
-            bool overlapX = pt.x < et.x + ec.w && pt.x + pc.w > et.x;
-            bool overlapY = pt.y < et.y + ec.h && pt.y + pc.h > et.y;
+            // When on a side wall the sprite is rotated 90 degrees so the
+            // effective collider dimensions flip — width becomes height and vice versa
+            bool sidewall = g.direction == GravityDir::LEFT || g.direction == GravityDir::RIGHT;
+            int  pcW      = sidewall ? pc.h : pc.w;
+            int  pcH      = sidewall ? pc.w : pc.h;
+            // Right wall render shifts the sprite left by (h - PLAYER_SPRITE_WIDTH),
+            // so the effective collision origin shifts left by the same amount
+            float adjustedX = pt.x;
+            if (g.direction == GravityDir::RIGHT)
+                adjustedX -= static_cast<float>(pc.h - PLAYER_SPRITE_WIDTH);
+            bool overlapX = adjustedX < et.x + ec.w && adjustedX + pcW > et.x;
+            bool overlapY = pt.y < et.y + ec.h && pt.y + pcH > et.y;
 
             if (overlapX && overlapY) {
                 health.current -= PLAYER_HIT_DAMAGE;
