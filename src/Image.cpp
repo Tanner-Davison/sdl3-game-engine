@@ -97,12 +97,53 @@ Image& Image::operator=(const Image& Source) {
 }
 
 Image::~Image() {
-    if (mImageSurface) {
-        SDL_DestroySurface(mImageSurface);
+    if (mImageSurface)  SDL_DestroySurface(mImageSurface);
+    if (mScaledSurface) SDL_DestroySurface(mScaledSurface);
+}
+
+void Image::RebakeScaled(int w, int h) {
+    if (mScaledSurface) {
+        SDL_DestroySurface(mScaledSurface);
+        mScaledSurface = nullptr;
     }
+
+    // Use COVER crop logic: fill the destination, cropping the source if needed
+    float sourceRatio = originalWidth / static_cast<float>(originalHeight);
+    float destRatio   = w / static_cast<float>(h);
+
+    SDL_Rect srcCrop = {0, 0, originalWidth, originalHeight};
+    if (destRatio < sourceRatio) {
+        int newSrcW  = static_cast<int>(originalHeight * destRatio);
+        srcCrop.x    = (originalWidth - newSrcW) / 2;
+        srcCrop.w    = newSrcW;
+    } else {
+        int newSrcH  = static_cast<int>(originalWidth / destRatio);
+        srcCrop.y    = (originalHeight - newSrcH) / 2;
+        srcCrop.h    = newSrcH;
+    }
+
+    mScaledSurface = SDL_CreateSurface(w, h, mImageSurface->format);
+    SDL_SetSurfaceBlendMode(mScaledSurface, SDL_BLENDMODE_NONE);
+    SDL_Rect dest = {0, 0, w, h};
+    SDL_BlitSurfaceScaled(mImageSurface, &srcCrop, mScaledSurface, &dest, SDL_SCALEMODE_LINEAR);
+
+    destWidth  = w;
+    destHeight = h;
 }
 
 void Image::Render(SDL_Surface* DestinationSurface) {
+    // PRESCALED: bake once, rebake on resize, then 1:1 blit every frame
+    if (fitMode == FitMode::PRESCALED) {
+        if (!mScaledSurface ||
+            destWidth  != DestinationSurface->w ||
+            destHeight != DestinationSurface->h) {
+            RebakeScaled(DestinationSurface->w, DestinationSurface->h);
+        }
+        SDL_Rect dest = {0, 0, destWidth, destHeight};
+        SDL_BlitSurface(mScaledSurface, nullptr, DestinationSurface, &dest);
+        return;
+    }
+
     if ((fitMode == FitMode::COVER || fitMode == FitMode::CONTAIN) &&
         (destWidth != DestinationSurface->w ||
          destHeight != DestinationSurface->h || !destinationInitialized)) {

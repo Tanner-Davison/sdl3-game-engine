@@ -24,8 +24,8 @@ class GameScene : public Scene {
                                           "game_assets/base_pack/Player/p1_spritesheet.txt");
 
         // Load all player animations
-        walkFrames = playerSheet->GetAnimation("p1_walk");
-        jumpFrames = walkFrames;
+        walkFrames  = playerSheet->GetAnimation("p1_walk");
+        jumpFrames  = walkFrames;
         idleFrames  = {playerSheet->GetFrame("p1_stand")};
         hurtFrames  = {playerSheet->GetFrame("p1_hurt")};
         duckFrames  = {playerSheet->GetFrame("p1_duck")};
@@ -37,11 +37,11 @@ class GameScene : public Scene {
         enemyWalkFrames = enemySheet->GetAnimation("slimeWalk");
 
         background = std::make_unique<Image>(
-            "game_assets/base_pack/bg_castle.png", nullptr, FitMode::COVER);
+            "game_assets/base_pack/deepspace_scene.png", nullptr, FitMode::PRESCALED);
         locationText = std::make_unique<Text>("You are in space!!", 20, 20);
 
         actionText =
-            std::make_unique<Text>("Float Around", SDL_Color{100, 100, 100, 0}, 20, 80, 20);
+            std::make_unique<Text>("Float Around", SDL_Color{255, 255, 255, 0}, 20, 80, 20);
 
         gameOverText = std::make_unique<Text>("Game Over!",
                                               SDL_Color{255, 0, 0, 255},
@@ -100,7 +100,7 @@ class GameScene : public Scene {
         if (!gameOver) {
             MovementSystem(reg, dt, mWindow->GetWidth());
             CenterPullSystem(reg, dt, mWindow->GetWidth(), mWindow->GetHeight());
-            BoundsSystem(reg, mWindow->GetWidth(), mWindow->GetHeight());
+            BoundsSystem(reg, dt, mWindow->GetWidth(), mWindow->GetHeight());
             PlayerStateSystem(reg);
             AnimationSystem(reg, dt);
             CollisionSystem(reg, dt, gameOver);
@@ -120,7 +120,11 @@ class GameScene : public Scene {
             locationText->Render(window.GetSurface());
             actionText->Render(window.GetSurface());
             RenderSystem(reg, window.GetSurface());
-            HUDSystem(reg, window.GetSurface(), window.GetWidth(), healthText.get());
+            HUDSystem(reg,
+                      window.GetSurface(),
+                      window.GetWidth(),
+                      healthText.get(),
+                      gravityText.get());
         }
 
         window.Update();
@@ -149,10 +153,12 @@ class GameScene : public Scene {
     std::unique_ptr<Text>      retryKeyText;
     std::unique_ptr<Rectangle> retryButton;
     std::unique_ptr<Text>      healthText;
+    std::unique_ptr<Text>      gravityText;
     SDL_Rect                   retryBtnRect{};
 
     void Spawn() {
         healthText  = std::make_unique<Text>("100", SDL_Color{255, 255, 255, 255}, 0, 0, 16);
+        gravityText = std::make_unique<Text>("", SDL_Color{100, 200, 255, 255}, 0, 0, 20);
         auto player = reg.create();
         reg.emplace<Transform>(player,
                                (float)(mWindow->GetWidth() / 2 - 33),
@@ -176,9 +182,10 @@ class GameScene : public Scene {
                                   });
 
         for (int i = 0; i < 15; ++i) {
-            float xPos  = static_cast<float>(rand() % (mWindow->GetWidth() - 100));
-            float yPos  = static_cast<float>(rand() % (mWindow->GetHeight() - SLIME_SPRITE_HEIGHT));
-            auto  enemy = reg.create();
+            float xPos = static_cast<float>(rand() % (mWindow->GetWidth() - 100));
+            float yPos =
+                static_cast<float>(rand() % (mWindow->GetHeight() - SLIME_SPRITE_HEIGHT));
+            auto enemy = reg.create();
             reg.emplace<Transform>(enemy, xPos, yPos);
             // Random speed between 60 and 180, random direction
             float speed = 60.0f + static_cast<float>(rand() % 120);

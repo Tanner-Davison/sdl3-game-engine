@@ -83,12 +83,45 @@ struct AnimationSet {
 
 enum class GravityDir { DOWN, UP, LEFT, RIGHT };
 
+// Per-frame flip cache for RenderSystem.
+// Stores one pre-flipped SDL_Surface* per animation frame, built lazily on
+// first use and reused every subsequent frame. Invalidated when the animation
+// set changes (detected by frame count mismatch).
+struct FlipCache {
+    std::vector<SDL_Surface*> frames; // indexed by AnimationState::currentFrame
+
+    FlipCache() = default;
+
+    // Non-copyable
+    FlipCache(const FlipCache&)            = delete;
+    FlipCache& operator=(const FlipCache&) = delete;
+
+    // Movable
+    FlipCache(FlipCache&& o) noexcept : frames(std::move(o.frames)) {}
+    FlipCache& operator=(FlipCache&& o) noexcept {
+        if (this != &o) {
+            for (auto* s : frames)
+                if (s)
+                    SDL_DestroySurface(s);
+            frames = std::move(o.frames);
+        }
+        return *this;
+    }
+
+    ~FlipCache() {
+        for (auto* s : frames)
+            if (s)
+                SDL_DestroySurface(s);
+    }
+};
+
 struct GravityState {
-    bool       active      = true;
-    float      timer       = 0.0f;
-    bool       isGrounded  = true; // true when touching the gravity wall
-    float      velocity    = 0.0f; // velocity along gravity axis
-    bool       jumpHeld    = false;
-    bool       isCrouching = false;
-    GravityDir direction   = GravityDir::DOWN;
+    bool       active          = true;
+    float      timer           = 0.0f;
+    bool       isGrounded      = true;
+    float      velocity        = 0.0f;
+    bool       jumpHeld        = false;
+    bool       isCrouching     = false;
+    GravityDir direction       = GravityDir::DOWN;
+    float      punishmentTimer = 0.0f; // counts down after a hit; gravity locked off until 0
 };

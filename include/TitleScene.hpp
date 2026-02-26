@@ -14,7 +14,7 @@ class TitleScene : public Scene {
   public:
     void Load(Window& window) override {
         background = std::make_unique<Image>("game_assets/base_pack/bg_castle.png",
-                                             nullptr, FitMode::COVER);
+                                             nullptr, FitMode::PRESCALED);
 
         SDL_Rect windowRect = {0, 0, window.GetWidth(), window.GetHeight()};
 

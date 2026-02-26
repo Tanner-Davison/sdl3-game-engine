@@ -6,7 +6,8 @@ enum class FitMode {
     CONTAIN,
     COVER,
     STRETCH,
-    SRCSIZE
+    SRCSIZE,
+    PRESCALED // bakes a scaled surface on first render (or on resize), then blits 1:1 every frame
 };
 
 class Image {
@@ -38,12 +39,15 @@ class Image {
     void HandleSrcSize(SDL_Rect& Requested);
 
   private:
+    void RebakeScaled(int w, int h);
+
     bool         flipHorizontal{false};
     int          destHeight{0};
     int          destWidth{0};
     int          originalWidth{0};
     int          originalHeight{0};
     SDL_Surface* mImageSurface{nullptr};
+    SDL_Surface* mScaledSurface{nullptr}; // PRESCALED baked cache
     SDL_Rect     mDestRectangle{0, 0, 0, 0};
     SDL_Rect     mSrcRectangle{0, 0, 0, 0};
     FitMode      fitMode{FitMode::COVER};
