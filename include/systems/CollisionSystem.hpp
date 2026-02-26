@@ -1,7 +1,6 @@
 #pragma once
 #include <Components.hpp>
 #include <entt/entt.hpp>
-#include <print>
 
 inline void CollisionSystem(entt::registry& reg, float dt, bool& gameOver) {
     // Tick down all invincibility timers
@@ -49,7 +48,6 @@ inline void CollisionSystem(entt::registry& reg, float dt, bool& gameOver) {
                 g.velocity          = 0.0f;
                 g.isGrounded        = false;
                 g.punishmentTimer   = GRAVITY_DURATION;
-                std::print("Player hit! Health: {}\n", health.current);
 
                 if (health.current <= 0.0f) {
                     health.current = 0.0f;

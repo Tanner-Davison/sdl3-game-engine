@@ -1,6 +1,5 @@
 #include "Image.hpp"
 #include <SDL3_image/SDL_image.h>
-#include <iostream>
 
 Image::Image(std::string File, const SDL_PixelFormatDetails* PreferredFormat,
              FitMode mode)
@@ -102,11 +101,7 @@ Image::~Image() {
 }
 
 void Image::RebakeScaled(int w, int h, SDL_PixelFormat destFormat) {
-    if (!mImageSurface) { std::cout << "[RebakeScaled] mImageSurface is null\n"; return; }
-    std::cout << "[RebakeScaled] src fmt=" << mImageSurface->format
-              << " src size=" << mImageSurface->w << "x" << mImageSurface->h
-              << " dest fmt=" << destFormat
-              << " baking to " << w << "x" << h << "\n";
+    if (!mImageSurface) return;
     if (mScaledSurface) {
         SDL_DestroySurface(mScaledSurface);
         mScaledSurface = nullptr;
@@ -147,17 +142,8 @@ void Image::Render(SDL_Surface* DestinationSurface) {
             destHeight != DestinationSurface->h) {
             RebakeScaled(DestinationSurface->w, DestinationSurface->h, DestinationSurface->format);
         }
-        if (mScaledSurface) {
-            std::cout << "[PRESCALED] dst fmt=" << DestinationSurface->format
-                      << " scaled fmt=" << mScaledSurface->format
-                      << " scaled size=" << mScaledSurface->w << "x" << mScaledSurface->h
-                      << " dst size=" << DestinationSurface->w << "x" << DestinationSurface->h << "\n";
-        } else {
-            std::cout << "[PRESCALED] mScaledSurface is null after bake\n";
-        }
         SDL_Rect dest = {0, 0, destWidth, destHeight};
-        int r = SDL_BlitSurface(mScaledSurface, nullptr, DestinationSurface, &dest);
-        if (r != 0) std::cout << "[PRESCALED] blit failed: " << SDL_GetError() << "\n";
+        SDL_BlitSurface(mScaledSurface, nullptr, DestinationSurface, &dest);
         return;
     }
 
