@@ -1,5 +1,7 @@
 # SDL Sandbox
 
+Author: Tanner Davison 
+
 A 2D game engine foundation built on SDL3 and EnTT. This project is a personal sandbox for building and testing the core systems needed for a platformer engine — windowing, sprite animation, sprite sheets, an Entity Component System, collision detection, scene management, and a delta-time game loop.
 
 ## Architecture Overview
