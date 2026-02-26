@@ -23,7 +23,7 @@
  * CheckSDLError("Creating Window");
  * @endcode
  */
-void CheckSDLError(const std::string& Action) {
+inline void CheckSDLError(const std::string& Action) {
 #ifdef ERROR_LOGGING
     const char* Error(SDL_GetError());
     if (*Error != '\0') {

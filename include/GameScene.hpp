@@ -181,7 +181,7 @@ class GameScene : public Scene {
                                       .front = frontFrames,
                                   });
 
-        for (int i = 0; i < 15; ++i) {
+        for (int i = 0; i < GRAVITYSLUGSCOUNT; ++i) {
             float xPos = static_cast<float>(rand() % (mWindow->GetWidth() - 100));
             float yPos =
                 static_cast<float>(rand() % (mWindow->GetHeight() - SLIME_SPRITE_HEIGHT));

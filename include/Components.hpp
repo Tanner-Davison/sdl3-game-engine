@@ -15,6 +15,7 @@ inline constexpr float GRAVITY_FORCE        = 600.0f; // pixels/sec^2
 inline constexpr float JUMP_FORCE           = 500.0f; // pixels/sec
 inline constexpr float MAX_FALL_SPEED       = 1000.0f;
 inline constexpr float PLAYER_SPEED         = 300.0f;
+inline constexpr int   GRAVITYSLUGSCOUNT    = 20;
 // Position and size in the world
 struct Transform {
     float x = 0.0f;

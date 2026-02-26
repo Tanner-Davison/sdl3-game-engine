@@ -24,9 +24,9 @@ inline void HUDSystem(entt::registry& reg,
         const SDL_PixelFormatDetails* fmt = SDL_GetPixelFormatDetails(screen->format);
         SDL_FillSurfaceRect(screen, &background, SDL_MapRGB(fmt, nullptr, 50, 50, 50));
 
-        float pct     = h.current / h.max;
-        Uint8 red     = static_cast<Uint8>(255 * (1.0f - pct));
-        Uint8 green   = static_cast<Uint8>(255 * pct);
+        float pct   = h.current / h.max;
+        Uint8 red   = static_cast<Uint8>(255 * (1.0f - pct));
+        Uint8 green = static_cast<Uint8>(255 * pct);
         SDL_FillSurfaceRect(screen, &foreground, SDL_MapRGB(fmt, nullptr, red, green, 0));
 
         std::string label = std::to_string(static_cast<int>(h.current)) + " / " +
