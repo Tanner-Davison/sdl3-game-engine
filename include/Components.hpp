@@ -10,7 +10,7 @@ inline constexpr int   PLAYER_SPRITE_WIDTH  = 66;
 inline constexpr int   PLAYER_SPRITE_HEIGHT = 92;
 inline constexpr int   SLIME_SPRITE_WIDTH   = 36;
 inline constexpr int   SLIME_SPRITE_HEIGHT  = 26;
-inline constexpr float GRAVITY_DURATION     = 15.0f;  // 1 minute
+inline constexpr float GRAVITY_DURATION     = 15.0f;  // 15 seconds
 inline constexpr float GRAVITY_FORCE        = 600.0f; // pixels/sec^2
 inline constexpr float JUMP_FORCE           = 800.0f; // pixels/sec
 inline constexpr float MAX_FALL_SPEED       = 900.0f;
@@ -81,10 +81,11 @@ struct AnimationSet {
 enum class GravityDir { DOWN, UP, LEFT, RIGHT };
 
 struct GravityState {
-    bool       active     = false;
-    float      timer      = 0.0f;
-    bool       isGrounded = false; // true when touching the gravity wall
-    float      velocity   = 0.0f;  // velocity along gravity axis
-    bool       jumpHeld   = false;
-    GravityDir direction  = GravityDir::DOWN;
+    bool       active      = true;
+    float      timer       = 0.0f;
+    bool       isGrounded  = true; // true when touching the gravity wall
+    float      velocity    = 0.0f; // velocity along gravity axis
+    bool       jumpHeld    = false;
+    bool       isCrouching = false;
+    GravityDir direction   = GravityDir::DOWN;
 };

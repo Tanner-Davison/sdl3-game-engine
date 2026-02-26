@@ -12,7 +12,7 @@ inline void MovementSystem(entt::registry& reg, float dt) {
     auto playerView = reg.view<Transform, Velocity, GravityState, PlayerTag>();
     playerView.each([dt, keys](Transform& t, Velocity& v, GravityState& g) {
         if (!g.active) {
-            // Free mode — friction on key release
+            // FREE MODE — friction on key release
             bool anyKeyHeld = keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_S] ||
                               keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_D];
             if (!anyKeyHeld) {
@@ -27,7 +27,7 @@ inline void MovementSystem(entt::registry& reg, float dt) {
             t.x += v.dx * dt;
             t.y += v.dy * dt;
         } else {
-            // Gravity mode — movement perpendicular to gravity axis still works
+            // GRAVITY MODE — movement perpendicular to gravity axis still works
             v.dx = 0.0f;
             v.dy = 0.0f;
 
@@ -41,7 +41,8 @@ inline void MovementSystem(entt::registry& reg, float dt) {
                     // Horizontal walking still works
                     if (keys[SDL_SCANCODE_A])
                         v.dx = -v.speed;
-                    v.dx = v.speed;
+                    if (keys[SDL_SCANCODE_D])
+                        v.dx = v.speed;
                     if (!horizKey) {
                         v.dx -= v.dx * friction * dt;
                         if (std::abs(v.dx) < 0.5f)
@@ -95,16 +96,8 @@ inline void MovementSystem(entt::registry& reg, float dt) {
                     break;
             }
 
-            // Timer — once expired pull player to center and reset
+            // Accumulate time on current wall (available for future use)
             g.timer += dt;
-            if (g.timer >= GRAVITY_DURATION) {
-                g.active     = false;
-                g.timer      = 0.0f;
-                g.velocity   = 0.0f;
-                g.isGrounded = false;
-                v.dx         = 0.0f;
-                v.dy         = 0.0f;
-            }
         }
     });
 
@@ -116,6 +109,21 @@ inline void MovementSystem(entt::registry& reg, float dt) {
     });
 };
 
+/**
+ * @brief Advances frame counters for all animated entities each tick.
+ *
+ * Accumulates @p dt into each entity's @ref AnimationState::timer and steps
+ * @ref AnimationState::currentFrame forward whenever the accumulated time
+ * exceeds one frame interval (1.0 / fps). Multiple frames may advance in a
+ * single call if dt is large (e.g. after a hitch), keeping animations
+ * time-accurate rather than frame-rate dependent.
+ *
+ * Non-looping animations are frozen on their final frame until an external
+ * system (e.g. @ref PlayerStateSystem) transitions them to a new state.
+ *
+ * @param reg  The EnTT registry. Queries all entities with @ref AnimationState.
+ * @param dt   Delta time in seconds since the last frame.
+ */
 inline void AnimationSystem(entt::registry& reg, float dt) {
     auto view = reg.view<AnimationState>();
     view.each([dt](AnimationState& anim) {
@@ -210,8 +218,18 @@ inline void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
                     break;
             }
         }
+        // Flash red when hurt — toggle on/off at 10Hz using remaining invincibility time
+        auto* inv = reg.try_get<InvincibilityTimer>(entity);
+        if (inv && inv->isInvincible) {
+            constexpr float flashRate = 10.0f;
+            bool            tintOn = static_cast<int>(inv->remaining * flashRate) % 2 == 0;
+            if (tintOn)
+                SDL_SetSurfaceColorMod(frame, 255, 0, 0);
+        }
+
         SDL_Rect dest = {renderX, renderY, frame->w, frame->h};
         SDL_BlitSurface(frame, nullptr, screen, &dest);
+        SDL_SetSurfaceColorMod(frame, 255, 255, 255); // reset mod before destroy
         SDL_DestroySurface(frame);
     });
 }
@@ -232,6 +250,9 @@ inline void InputSystem(entt::registry& reg, SDL_Event& e) {
                 case SDLK_D:
                     v.dx    = v.speed;
                     r.flipH = invertFlip;
+                    break;
+                case SDLK_LCTRL:
+                    g.isCrouching = true;
                     break;
             }
         }
@@ -260,6 +281,9 @@ inline void InputSystem(entt::registry& reg, SDL_Event& e) {
             }
             if (e.type == SDL_EVENT_KEY_UP && e.key.key == SDLK_SPACE) {
                 g.jumpHeld = false;
+            }
+            if (e.type == SDL_EVENT_KEY_UP && e.key.key == SDLK_LCTRL) {
+                g.isCrouching = false;
             }
         }
     });
@@ -296,9 +320,8 @@ inline void BoundsSystem(entt::registry& reg, int windowW, int windowH) {
                 // If already grounded on this same wall, don't do anything
                 if (g.active && g.isGrounded && g.direction == dir)
                     return;
-                // Only reset timer on very first activation
-                if (!g.active)
-                    g.timer = 0.0f;
+                // Reset timer whenever we switch to a new wall
+                g.timer      = 0.0f;
                 g.active     = true;
                 g.isGrounded = false;
                 g.velocity   = 0.0f;
@@ -324,7 +347,7 @@ inline void BoundsSystem(entt::registry& reg, int windowW, int windowH) {
             }
             // Bottom wall — gravity pulls down
             if (t.y + c.h > windowH) {
-                t.y = (float)(windowH - c.h);
+                t.y = static_cast<float>(windowH - c.h);
                 activate(GravityDir::DOWN);
             }
 
@@ -419,6 +442,11 @@ inline void PlayerStateSystem(entt::registry& reg) {
             newFps     = 12.0f;
             newLooping = true;
             newID      = AnimationID::WALK;
+        } else if (g.isCrouching) {
+            newFrames  = &set.duck;
+            newFps     = 8.0f;
+            newLooping = true;
+            newID      = AnimationID::DUCK;
         } else {
             newFrames  = &set.idle;
             newFps     = 8.0f;
@@ -450,10 +478,12 @@ inline void CollisionSystem(entt::registry& reg, float dt, bool& gameOver) {
         }
     });
 
-    auto playerView = reg.view<PlayerTag, Transform, Collider, Health, InvincibilityTimer>();
-    auto enemyView  = reg.view<Transform, Collider>(entt::exclude<PlayerTag>);
+    auto playerView =
+        reg.view<PlayerTag, GravityState, Transform, Collider, Health, InvincibilityTimer>();
+    auto enemyView = reg.view<Transform, Collider>(entt::exclude<PlayerTag>);
 
-    playerView.each([&](const Transform&    pt,
+    playerView.each([&](GravityState&       g,
+                        const Transform&    pt,
                         const Collider&     pc,
                         Health&             health,
                         InvincibilityTimer& inv) {
@@ -467,6 +497,8 @@ inline void CollisionSystem(entt::registry& reg, float dt, bool& gameOver) {
             if (overlapX && overlapY) {
                 health.current -= PLAYER_HIT_DAMAGE;
                 inv.isInvincible = true;
+                g.isGrounded     = true;
+                g.active         = true;
                 inv.remaining    = inv.duration;
                 std::print("Player hit! Health: {}\n", health.current);
 
