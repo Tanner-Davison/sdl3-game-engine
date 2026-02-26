@@ -95,6 +95,8 @@ inline void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
         SDL_Rect dest = {renderX, renderY, frame->w, frame->h};
         SDL_BlitSurface(frame, nullptr, screen, &dest);
         SDL_SetSurfaceColorMod(frame, 255, 255, 255);
+        int frameW = frame->w; // save before potential free
+        int frameH = frame->h;
         if (ownFrame) SDL_DestroySurface(frame);
 
 #ifdef DEBUG_HITBOXES
@@ -105,13 +107,31 @@ inline void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
                                ? SDL_MapRGB(fmt, nullptr, 0, 255, 0)
                                : SDL_MapRGB(fmt, nullptr, 255, 0, 0);
             constexpr int thickness = 1;
-            int  hx       = static_cast<int>(t.x);
-            int  hy       = static_cast<int>(t.y);
-            auto* gs      = reg.try_get<GravityState>(entity);
-            bool sidewall = gs && (gs->direction == GravityDir::LEFT || gs->direction == GravityDir::RIGHT);
-            int  cw       = sidewall ? col->h : col->w;
-            int  ch       = sidewall ? col->w : col->h;
-            if (gs && gs->direction == GravityDir::RIGHT) hx -= (frame->w - (sidewall ? col->h : col->w));
+            int  hx = static_cast<int>(t.x);
+            int  hy = static_cast<int>(t.y);
+            int  cw = col->w;
+            int  ch = col->h;
+            // In gravity mode, sprite is rotated so collider axes and render offset change
+            if (g && g->active) {
+                switch (g->direction) {
+                    case GravityDir::DOWN:
+                        break;
+                    case GravityDir::UP:
+                        // Rotated 180 — same dimensions, no offset needed
+                        break;
+                    case GravityDir::LEFT:
+                        // Rotated 90 CW: frame is taller than wide
+                        // collider in world space: w=col->h, h=col->w
+                        cw = col->h;
+                        ch = col->w;
+                        break;
+                    case GravityDir::RIGHT:
+                        hx -= (frameW - col->w);
+                        cw  = col->h;
+                        ch  = col->w;
+                        break;
+                }
+            }
             SDL_Rect top    = {hx,      hy,      cw,        thickness};
             SDL_Rect bottom = {hx,      hy + ch, cw,        thickness};
             SDL_Rect left_  = {hx,      hy,      thickness, ch};

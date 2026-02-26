@@ -26,41 +26,54 @@ inline void MovementSystem(entt::registry& reg, float dt, int windowW) {
             t.y += v.dy * dt;
         } else {
             // GRAVITY MODE — movement perpendicular to gravity axis still works
-            v.dx = 0.0f;
-            v.dy = 0.0f;
-
-            bool            horizKey = keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_D];
-            bool            vertKey  = keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_S];
             constexpr float friction = 3.0f;
 
-            switch (g.direction) {
-                case GravityDir::DOWN:
-                case GravityDir::UP: {
-                    if (keys[SDL_SCANCODE_A])
-                        v.dx = -v.speed;
-                    if (keys[SDL_SCANCODE_D])
-                        v.dx = v.speed;
-                    if (!horizKey) {
-                        v.dx -= v.dx * friction * dt;
-                        if (std::abs(v.dx) < 0.5f)
-                            v.dx = 0.0f;
+            if (g.isCrouching) {
+                // Crouching — bleed off existing velocity with friction, no new input
+                v.dx -= v.dx * friction * dt;
+                v.dy -= v.dy * friction * dt;
+                if (std::abs(v.dx) < 0.5f)
+                    v.dx = 0.0f;
+                if (std::abs(v.dy) < 0.5f)
+                    v.dy = 0.0f;
+                t.x += v.dx * dt;
+                t.y += v.dy * dt;
+            } else {
+                v.dx = 0.0f;
+                v.dy = 0.0f;
+
+                bool horizKey = keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_D];
+                bool vertKey  = keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_S];
+
+                switch (g.direction) {
+                    case GravityDir::DOWN:
+                    case GravityDir::UP: {
+                        if (keys[SDL_SCANCODE_A])
+                            v.dx = -v.speed;
+                        if (keys[SDL_SCANCODE_D])
+                            v.dx = v.speed;
+                        if (!horizKey) {
+                            v.dx -= v.dx * friction * dt;
+                            if (std::abs(v.dx) < 0.5f)
+                                v.dx = 0.0f;
+                        }
+                        t.x += v.dx * dt;
+                        break;
                     }
-                    t.x += v.dx * dt;
-                    break;
-                }
-                case GravityDir::LEFT:
-                case GravityDir::RIGHT: {
-                    if (keys[SDL_SCANCODE_W])
-                        v.dy = -v.speed;
-                    if (keys[SDL_SCANCODE_S])
-                        v.dy = v.speed;
-                    if (!vertKey) {
-                        v.dy -= v.dy * friction * dt;
-                        if (std::abs(v.dy) < 0.5f)
-                            v.dy = 0.0f;
+                    case GravityDir::LEFT:
+                    case GravityDir::RIGHT: {
+                        if (keys[SDL_SCANCODE_W])
+                            v.dy = -v.speed;
+                        if (keys[SDL_SCANCODE_S])
+                            v.dy = v.speed;
+                        if (!vertKey) {
+                            v.dy -= v.dy * friction * dt;
+                            if (std::abs(v.dy) < 0.5f)
+                                v.dy = 0.0f;
+                        }
+                        t.y += v.dy * dt;
+                        break;
                     }
-                    t.y += v.dy * dt;
-                    break;
                 }
             }
 

@@ -11,12 +11,16 @@ inline void InputSystem(entt::registry& reg, SDL_Event& e) {
         if (e.type == SDL_EVENT_KEY_DOWN) {
             switch (e.key.key) {
                 case SDLK_A:
-                    v.dx    = -v.speed;
-                    r.flipH = !invertFlip;
+                    if (!g.isCrouching) {
+                        v.dx    = -v.speed;
+                        r.flipH = !invertFlip;
+                    }
                     break;
                 case SDLK_D:
-                    v.dx    = v.speed;
-                    r.flipH = invertFlip;
+                    if (!g.isCrouching) {
+                        v.dx    = v.speed;
+                        r.flipH = invertFlip;
+                    }
                     break;
                 case SDLK_LCTRL:
                     g.isCrouching = true;
