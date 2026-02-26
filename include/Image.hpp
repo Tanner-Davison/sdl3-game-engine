@@ -39,7 +39,7 @@ class Image {
     void HandleSrcSize(SDL_Rect& Requested);
 
   private:
-    void RebakeScaled(int w, int h);
+    void RebakeScaled(int w, int h, SDL_PixelFormat destFormat);
 
     bool         flipHorizontal{false};
     int          destHeight{0};

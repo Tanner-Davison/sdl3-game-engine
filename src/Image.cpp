@@ -101,8 +101,12 @@ Image::~Image() {
     if (mScaledSurface) SDL_DestroySurface(mScaledSurface);
 }
 
-void Image::RebakeScaled(int w, int h) {
-    if (!mImageSurface) return;
+void Image::RebakeScaled(int w, int h, SDL_PixelFormat destFormat) {
+    if (!mImageSurface) { std::cout << "[RebakeScaled] mImageSurface is null\n"; return; }
+    std::cout << "[RebakeScaled] src fmt=" << mImageSurface->format
+              << " src size=" << mImageSurface->w << "x" << mImageSurface->h
+              << " dest fmt=" << destFormat
+              << " baking to " << w << "x" << h << "\n";
     if (mScaledSurface) {
         SDL_DestroySurface(mScaledSurface);
         mScaledSurface = nullptr;
@@ -123,11 +127,10 @@ void Image::RebakeScaled(int w, int h) {
         srcCrop.h    = newSrcH;
     }
 
-    // Use RGBA8888 explicitly so the blit onto the window surface always works
-    // regardless of whether the source image has an alpha channel (e.g. JPEG)
-    mScaledSurface = SDL_CreateSurface(w, h, SDL_PIXELFORMAT_RGBA8888);
-    SDL_SetSurfaceBlendMode(mScaledSurface, SDL_BLENDMODE_NONE);
-    SDL_Rect dest = {0, 0, w, h};
+    // Match the destination surface format so channels are never swapped on any platform
+    mScaledSurface = SDL_CreateSurface(w, h, destFormat);
+    SDL_SetSurfaceBlendMode(mScaledSurface, SDL_BLENDMODE_BLEND);
+    SDL_Rect dest  = {0, 0, w, h};
     SDL_BlitSurfaceScaled(mImageSurface, &srcCrop, mScaledSurface, &dest, SDL_SCALEMODE_LINEAR);
 
     destWidth  = w;
@@ -142,10 +145,19 @@ void Image::Render(SDL_Surface* DestinationSurface) {
         if (!mScaledSurface ||
             destWidth  != DestinationSurface->w ||
             destHeight != DestinationSurface->h) {
-            RebakeScaled(DestinationSurface->w, DestinationSurface->h);
+            RebakeScaled(DestinationSurface->w, DestinationSurface->h, DestinationSurface->format);
+        }
+        if (mScaledSurface) {
+            std::cout << "[PRESCALED] dst fmt=" << DestinationSurface->format
+                      << " scaled fmt=" << mScaledSurface->format
+                      << " scaled size=" << mScaledSurface->w << "x" << mScaledSurface->h
+                      << " dst size=" << DestinationSurface->w << "x" << DestinationSurface->h << "\n";
+        } else {
+            std::cout << "[PRESCALED] mScaledSurface is null after bake\n";
         }
         SDL_Rect dest = {0, 0, destWidth, destHeight};
-        SDL_BlitSurface(mScaledSurface, nullptr, DestinationSurface, &dest);
+        int r = SDL_BlitSurface(mScaledSurface, nullptr, DestinationSurface, &dest);
+        if (r != 0) std::cout << "[PRESCALED] blit failed: " << SDL_GetError() << "\n";
         return;
     }
 
