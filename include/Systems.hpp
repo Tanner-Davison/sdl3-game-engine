@@ -6,7 +6,7 @@
 #include <entt/entt.hpp>
 #include <print>
 
-inline void MovementSystem(entt::registry& reg, float dt) {
+inline void MovementSystem(entt::registry& reg, float dt, int windowW) {
     const bool* keys = SDL_GetKeyboardState(nullptr);
 
     auto playerView = reg.view<Transform, Velocity, GravityState, PlayerTag>();
@@ -101,11 +101,17 @@ inline void MovementSystem(entt::registry& reg, float dt) {
         }
     });
 
-    // Enemies move without friction
-    auto enemyView = reg.view<Transform, Velocity>(entt::exclude<PlayerTag>);
-    enemyView.each([dt](Transform& t, Velocity& v) {
+    // Enemies bounce left and right within the window
+    auto enemyView = reg.view<EnemyTag, Transform, Velocity, Collider>();
+    enemyView.each([dt, windowW](Transform& t, Velocity& v, const Collider& c) {
         t.x += v.dx * dt;
-        t.y += v.dy * dt;
+        if (t.x < 0.0f) {
+            t.x  = 0.0f;
+            v.dx = std::abs(v.dx);
+        } else if (t.x + c.w > windowW) {
+            t.x  = static_cast<float>(windowW - c.w);
+            v.dx = -std::abs(v.dx);
+        }
     });
 };
 

@@ -24,8 +24,8 @@ class GameScene : public Scene {
                                           "game_assets/base_pack/Player/p1_spritesheet.txt");
 
         // Load all player animations
-        walkFrames  = playerSheet->GetAnimation("p1_walk");
-        jumpFrames  = playerSheet->GetAnimation("p1_jump");
+        walkFrames = playerSheet->GetAnimation("p1_walk");
+        jumpFrames = walkFrames;
         idleFrames  = {playerSheet->GetFrame("p1_stand")};
         hurtFrames  = {playerSheet->GetFrame("p1_hurt")};
         duckFrames  = {playerSheet->GetFrame("p1_duck")};
@@ -98,7 +98,7 @@ class GameScene : public Scene {
 
     void Update(float dt) override {
         if (!gameOver) {
-            MovementSystem(reg, dt);
+            MovementSystem(reg, dt, mWindow->GetWidth());
             CenterPullSystem(reg, dt, mWindow->GetWidth(), mWindow->GetHeight());
             BoundsSystem(reg, mWindow->GetWidth(), mWindow->GetHeight());
             PlayerStateSystem(reg);
@@ -176,15 +176,19 @@ class GameScene : public Scene {
                                   });
 
         for (int i = 0; i < 15; ++i) {
-            float xPos  = rand() % (mWindow->GetWidth() - 100);
-            float yPos  = rand() % (mWindow->GetHeight() - 100);
+            float xPos  = static_cast<float>(rand() % (mWindow->GetWidth() - 100));
+            float yPos  = static_cast<float>(rand() % (mWindow->GetHeight() - SLIME_SPRITE_HEIGHT));
             auto  enemy = reg.create();
             reg.emplace<Transform>(enemy, xPos, yPos);
-            reg.emplace<Velocity>(enemy);
+            // Random speed between 60 and 180, random direction
+            float speed = 60.0f + static_cast<float>(rand() % 120);
+            float dx    = (rand() % 2 == 0) ? speed : -speed;
+            reg.emplace<Velocity>(enemy, dx, 0.0f, speed);
             reg.emplace<AnimationState>(
                 enemy, 0, (int)enemyWalkFrames.size(), 0.0f, 7.0f, true);
             reg.emplace<Renderable>(enemy, enemySheet->GetSurface(), enemyWalkFrames, false);
             reg.emplace<Collider>(enemy, SLIME_SPRITE_WIDTH, SLIME_SPRITE_HEIGHT);
+            reg.emplace<EnemyTag>(enemy);
         }
     }
 
