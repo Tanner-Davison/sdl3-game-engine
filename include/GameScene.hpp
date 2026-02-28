@@ -141,6 +141,19 @@ class GameScene : public Scene {
             AnimationSystem(reg, dt);
             CollisionSystem(reg, dt, gameOver, coinCount, stompCount, mWindow->GetWidth(), mWindow->GetHeight());
 
+            // Jump is checked HERE — after CollisionSystem has settled isGrounded for
+            // both screen walls and editor tiles. jumpHeld is set/cleared by InputSystem
+            // events. We consume it the first frame it's true while grounded so the jump
+            // fires exactly once per press regardless of frame timing.
+            auto jumpView = reg.view<PlayerTag, GravityState>();
+            jumpView.each([](GravityState& g) {
+                if (g.active && g.jumpHeld && g.isGrounded) {
+                    g.velocity   = -JUMP_FORCE;
+                    g.isGrounded = false;
+                    g.jumpHeld   = false; // consume so it doesn't repeat
+                }
+            });
+
             // Check win condition
             if (totalCoins > 0 && coinCount >= totalCoins)
                 levelComplete = true;
@@ -300,25 +313,38 @@ class GameScene : public Scene {
 
         // Spawn tiles — only from level file
         for (const auto& ts : mLevel.tiles) {
-            SDL_Surface* tileSurf = IMG_Load(ts.imagePath.c_str());
-            if (!tileSurf) {
+            SDL_Surface* raw = IMG_Load(ts.imagePath.c_str());
+            if (!raw) {
                 std::print("Failed to load tile: {}\n", ts.imagePath);
                 continue;
             }
-            SDL_SetSurfaceBlendMode(tileSurf, SDL_BLENDMODE_BLEND);
-            // Scale to requested size
-            SDL_Surface* scaled = SDL_CreateSurface(ts.w, ts.h, tileSurf->format);
-            SDL_Rect src = {0, 0, tileSurf->w, tileSurf->h};
+
+            // Convert to ARGB8888 so blits to the screen surface never silently fail
+            // due to pixel format mismatch (IMG_Load can return many different formats).
+            SDL_Surface* converted = SDL_ConvertSurface(raw, SDL_PIXELFORMAT_ARGB8888);
+            SDL_DestroySurface(raw);
+            if (!converted) {
+                std::print("Failed to convert tile surface: {}\n", ts.imagePath);
+                continue;
+            }
+
+            // Scale to the size requested in the level file
+            SDL_Surface* scaled = SDL_CreateSurface(ts.w, ts.h, SDL_PIXELFORMAT_ARGB8888);
+            if (!scaled) {
+                SDL_DestroySurface(converted);
+                continue;
+            }
+            SDL_SetSurfaceBlendMode(converted, SDL_BLENDMODE_NONE); // no alpha during copy
+            SDL_Rect src = {0, 0, converted->w, converted->h};
             SDL_Rect dst = {0, 0, ts.w, ts.h};
-            SDL_BlitSurfaceScaled(tileSurf, &src, scaled, &dst, SDL_SCALEMODE_LINEAR);
-            SDL_DestroySurface(tileSurf);
+            SDL_BlitSurfaceScaled(converted, &src, scaled, &dst, SDL_SCALEMODE_LINEAR);
+            SDL_DestroySurface(converted);
             SDL_SetSurfaceBlendMode(scaled, SDL_BLENDMODE_BLEND);
 
             auto tile = reg.create();
             reg.emplace<Transform>(tile, ts.x, ts.y);
             reg.emplace<Collider>(tile, ts.w, ts.h);
             reg.emplace<TileTag>(tile);
-            // Single-frame renderable using scaled surface directly
             std::vector<SDL_Rect> tileFrame = {{0, 0, ts.w, ts.h}};
             reg.emplace<Renderable>(tile, scaled, tileFrame, false);
             reg.emplace<AnimationState>(tile, 0, 1, 0.0f, 1.0f, false);
@@ -352,6 +378,8 @@ class GameScene : public Scene {
 
     void Respawn() {
         reg.clear();
+        for (auto* s : tileScaledSurfaces) SDL_DestroySurface(s);
+        tileScaledSurfaces.clear();
         gameOver           = false;
         levelComplete      = false;
         levelCompleteTimer = 2.0f;

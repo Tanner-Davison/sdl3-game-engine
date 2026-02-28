@@ -17,7 +17,14 @@
  * -# Duck  — when crouching
  * -# Idle  — fallback when stationary
  */
-inline constexpr int PLAYER_DUCK_HEIGHT = 50; // knight slide is shorter than standing height
+// Standing collider: w=32, h=60, roff.x=-24  (centered over upright body)
+// Crouching collider: w=44, h=32, roff.x=5   (over the crouched ball, bottom-left of frame)
+inline constexpr int PLAYER_STAND_HEIGHT  = 60;
+inline constexpr int PLAYER_STAND_WIDTH   = 32;
+inline constexpr int PLAYER_DUCK_HEIGHT   = 32;
+inline constexpr int PLAYER_DUCK_WIDTH    = 44;
+inline constexpr int PLAYER_DUCK_ROFF_X   = 5;   // duck roff.x
+inline constexpr int PLAYER_STAND_ROFF_X  = -24; // stand roff.x
 
 inline void PlayerStateSystem(entt::registry& reg) {
     auto view = reg.view<PlayerTag,
@@ -97,29 +104,40 @@ inline void PlayerStateSystem(entt::registry& reg) {
 
             bool wasD = anim.currentAnim == AnimationID::DUCK;
             bool nowD = newID            == AnimationID::DUCK;
-            if (!wasD && nowD || wasD && !nowD) {
-                int newH = nowD ? PLAYER_DUCK_HEIGHT : PLAYER_SPRITE_HEIGHT;
-                // Anchor the edge that is flush against the gravity wall so the
-                // player doesn't float or clip when the collider height changes.
+            if (wasD != nowD) {
+                int newH = nowD ? PLAYER_DUCK_HEIGHT : PLAYER_STAND_HEIGHT;
+                int newW = nowD ? PLAYER_DUCK_WIDTH  : PLAYER_STAND_WIDTH;
+
+                // Update RenderOffset so the hitbox tracks the visible body.
+                // Standing: roff.x=-24 (centers 80px frame over 32px collider)
+                // Crouching: roff.x=+5  (body ball sits in bottom-left of frame)
+                // roff.y stays at -10 for both (feet-padding from frame bottom).
+                auto* roff = reg.try_get<RenderOffset>(entity);
+                if (roff) roff->x = nowD ? PLAYER_DUCK_ROFF_X : PLAYER_STAND_ROFF_X;
+
+                // Anchor the wall-flush edge so the player doesn't float or clip.
                 switch (g.direction) {
                     case GravityDir::DOWN:
-                        // floor is bottom edge: t.y + col.h stays fixed
+                        // floor = bottom edge: keep t.y + col.h fixed
                         t.y   = (t.y + col.h) - newH;
                         col.h = newH;
+                        col.w = newW;
                         break;
                     case GravityDir::UP:
-                        // floor is top edge: t.y stays fixed
+                        // floor = top edge: t.y fixed
                         col.h = newH;
+                        col.w = newW;
                         break;
                     case GravityDir::LEFT:
-                        // floor is left edge: t.x stays fixed, col is sideways so
-                        // the height in world-space maps to col.h (rotated)
+                        // floor = left edge: t.x fixed
+                        // sidewall: col.h is the depth axis, col.w is the slide axis
                         col.h = newH;
+                        col.w = newW;
                         break;
                     case GravityDir::RIGHT:
-                        // floor is right edge: t.x + col.w stays fixed
-                        // col is sideways so world-depth maps to col.h
+                        // floor = right edge: t.x + col.h fixed
                         col.h = newH;
+                        col.w = newW;
                         break;
                 }
             }

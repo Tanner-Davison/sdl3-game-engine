@@ -5,7 +5,7 @@
 std::unique_ptr<Scene> TitleScene::NextScene() {
     if (startGame) {
         startGame = false;
-        return std::make_unique<GameScene>();
+        return std::make_unique<GameScene>(mChosenLevel);
     }
     if (openEditor) {
         openEditor = false;

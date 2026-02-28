@@ -68,13 +68,10 @@ inline void InputSystem(entt::registry& reg, SDL_Event& e) {
                 }
             }
         } else {
-            if (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_SPACE) {
-                if (g.isGrounded) {
-                    g.velocity   = -JUMP_FORCE;
-                    g.isGrounded = false;
-                    g.jumpHeld   = true;
-                }
-            }
+            // Track spacebar held state via events — actual jump fires each frame
+            // in MovementSystem after CollisionSystem has settled isGrounded.
+            if (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_SPACE)
+                g.jumpHeld = true;
             if (e.type == SDL_EVENT_KEY_UP && e.key.key == SDLK_SPACE)
                 g.jumpHeld = false;
         }

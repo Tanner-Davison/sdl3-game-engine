@@ -109,10 +109,14 @@ inline void MovementSystem(entt::registry& reg, float dt, int windowW) {
         }
     });
 
-    // Enemies bounce left and right within the window, flipping to face movement direction
+    // Enemies bounce left and right within the window and off placed tiles,
+    // flipping to face their movement direction.
+    auto tileView  = reg.view<TileTag, Transform, Collider>();
     auto enemyView = reg.view<EnemyTag, Transform, Velocity, Collider, Renderable>(entt::exclude<DeadTag>);
-    enemyView.each([dt, windowW](Transform& t, Velocity& v, const Collider& c, Renderable& r) {
+    enemyView.each([&](Transform& t, Velocity& v, const Collider& c, Renderable& r) {
         t.x += v.dx * dt;
+
+        // Window-edge bouncing
         if (t.x < 0.0f) {
             t.x  = 0.0f;
             v.dx = std::abs(v.dx);
@@ -120,7 +124,38 @@ inline void MovementSystem(entt::registry& reg, float dt, int windowW) {
             t.x  = static_cast<float>(windowW - c.w);
             v.dx = -std::abs(v.dx);
         }
-        // Flip to face the direction of travel
+
+        // Tile-wall bouncing — check AABB overlap against every placed tile.
+        // We only care about horizontal contact (the enemy walks on a flat Y plane),
+        // so we push the enemy out horizontally and flip dx.
+        tileView.each([&](const Transform& tt, const Collider& tc) {
+            // Vertical overlap — enemy must share some Y range with the tile
+            bool vertOverlap = t.y < tt.y + tc.h && t.y + c.h > tt.y;
+            if (!vertOverlap) return;
+
+            // Horizontal overlap
+            float eRight  = t.x + c.w;
+            float eLeft   = t.x;
+            float tRight  = tt.x + tc.w;
+            float tLeft   = tt.x;
+            if (eRight <= tLeft || eLeft >= tRight) return;
+
+            // Push out whichever side has less penetration and flip velocity
+            float penLeft  = eRight - tLeft;  // penetration from enemy's right into tile's left
+            float penRight = tRight - eLeft;   // penetration from tile's right into enemy's left
+
+            if (penLeft < penRight) {
+                // Enemy came from the left — push back left, bounce right
+                t.x  = tLeft - c.w;
+                v.dx = -std::abs(v.dx);
+            } else {
+                // Enemy came from the right — push back right, bounce left
+                t.x  = tRight;
+                v.dx = std::abs(v.dx);
+            }
+        });
+
+        // Flip sprite to face the direction of travel
         r.flipH = v.dx > 0.0f;
     });
 }

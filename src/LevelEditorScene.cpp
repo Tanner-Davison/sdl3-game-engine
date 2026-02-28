@@ -67,6 +67,17 @@ void LevelEditorScene::Load(Window& window) {
         "game_assets/base_pack/Enemies/enemies_spritesheet.png",
         "game_assets/base_pack/Enemies/enemies_spritesheet.txt");
 
+    // Auto-load the last saved level so edits are never lost between sessions.
+    // Only do this if mLevel is still in its default state (i.e. a fresh editor open,
+    // not a reload after the scene was already populated in memory).
+    if (mLevel.coins.empty() && mLevel.enemies.empty() && mLevel.tiles.empty()) {
+        std::string autoPath = "levels/" + mLevelName + ".json";
+        if (fs::exists(autoPath)) {
+            LoadLevel(autoPath, mLevel);
+            SetStatus("Resumed: " + autoPath);
+        }
+    }
+
     if (mLevel.player.x == 0 && mLevel.player.y == 0) {
         mLevel.player.x = static_cast<float>(CanvasW() / 2 - 16);
         mLevel.player.y = static_cast<float>(window.GetHeight() - 60);
@@ -154,6 +165,7 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                 if (e.key.mod & SDL_KMOD_CTRL) {
                     fs::create_directories("levels");
                     std::string path = "levels/" + mLevelName + ".json";
+                    mLevel.name = mLevelName;
                     SaveLevel(mLevel, path);
                     SetStatus("Saved: " + path);
                 }
@@ -186,6 +198,7 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
         if (HitTest(btnSave, mx, my)) {
             fs::create_directories("levels");
             std::string path = "levels/" + mLevelName + ".json";
+            mLevel.name = mLevelName;
             SaveLevel(mLevel, path); SetStatus("Saved: " + path); return true;
         }
         if (HitTest(btnLoad, mx, my)) {
@@ -200,6 +213,7 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
         if (HitTest(btnPlay, mx, my)) {
             fs::create_directories("levels");
             std::string path = "levels/" + mLevelName + ".json";
+            mLevel.name = mLevelName;
             SaveLevel(mLevel, path); mLaunchGame = true; return true;
         }
 

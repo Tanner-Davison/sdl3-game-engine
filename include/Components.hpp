@@ -12,7 +12,7 @@ inline constexpr int   SLIME_SPRITE_WIDTH   = 36;
 inline constexpr int   SLIME_SPRITE_HEIGHT  = 26;
 inline constexpr float GRAVITY_DURATION     = 5.0f;   // 5 seconds
 inline constexpr float GRAVITY_FORCE        = 800.0f; // pixels/sec^2
-inline constexpr float JUMP_FORCE           = 350.0f; // pixels/sec
+inline constexpr float JUMP_FORCE           = 450.0f; // pixels/sec
 inline constexpr float MAX_FALL_SPEED       = 1000.0f;
 inline constexpr float PLAYER_SPEED         = 300.0f;
 inline constexpr int   GRAVITYSLUGSCOUNT    = 20;
@@ -93,12 +93,18 @@ struct InvincibilityTimer {
 // Holds all animation frame sets and their source sheets for an entity.
 // sheet pointers are non-owning — the SpriteSheet objects must outlive this.
 struct AnimationSet {
-    std::vector<SDL_Rect> idle;  SDL_Surface* idleSheet  = nullptr;
-    std::vector<SDL_Rect> walk;  SDL_Surface* walkSheet  = nullptr;
-    std::vector<SDL_Rect> jump;  SDL_Surface* jumpSheet  = nullptr;
-    std::vector<SDL_Rect> hurt;  SDL_Surface* hurtSheet  = nullptr;
-    std::vector<SDL_Rect> duck;  SDL_Surface* duckSheet  = nullptr;
-    std::vector<SDL_Rect> front; SDL_Surface* frontSheet = nullptr;
+    std::vector<SDL_Rect> idle;
+    SDL_Surface*          idleSheet = nullptr;
+    std::vector<SDL_Rect> walk;
+    SDL_Surface*          walkSheet = nullptr;
+    std::vector<SDL_Rect> jump;
+    SDL_Surface*          jumpSheet = nullptr;
+    std::vector<SDL_Rect> hurt;
+    SDL_Surface*          hurtSheet = nullptr;
+    std::vector<SDL_Rect> duck;
+    SDL_Surface*          duckSheet = nullptr;
+    std::vector<SDL_Rect> front;
+    SDL_Surface*          frontSheet = nullptr;
 };
 
 enum class GravityDir { DOWN, UP, LEFT, RIGHT };

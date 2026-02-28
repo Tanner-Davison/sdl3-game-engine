@@ -1,5 +1,6 @@
 #pragma once
 #include <Components.hpp>
+#include <cmath>
 #include <entt/entt.hpp>
 #include <vector>
 
@@ -160,7 +161,9 @@ inline void CollisionSystem(entt::registry& reg, float dt, bool& gameOver, int& 
         });
 
         // If no dead enemy is supporting the player and they aren't on a real wall,
-        // unground them so gravity pulls them back down
+        // tentatively clear isGrounded. The tile loop below will re-set it if the
+        // player is resting on a tile. This avoids the one-frame flicker that made
+        // jump detection unreliable on tile surfaces.
         if (!onDeadEnemy && g.isGrounded) {
             bool onRealWall = false;
             switch (g.direction) {
@@ -169,84 +172,129 @@ inline void CollisionSystem(entt::registry& reg, float dt, bool& gameOver, int& 
                 case GravityDir::LEFT:  onRealWall = (pt.x <= 0.0f);            break;
                 case GravityDir::RIGHT: onRealWall = (pt.x + pc.h >= windowW);  break;
             }
-            if (!onRealWall) {
-                g.isGrounded = false;
-            }
+            if (!onRealWall)
+                g.isGrounded = false; // tiles will restore this below if still supported
         }
 
-        // Tile/prop collision — gravity-aware AABB push-out.
-        // For LEFT/RIGHT gravity the collider is rotated in world-space:
-        //   pcW = extent along X  = pc.h (the tall axis becomes the horizontal depth)
-        //   pcH = extent along Y  = pc.w (the narrow axis becomes the vertical span)
-        // For UP/DOWN gravity the collider is upright:
-        //   pcW = pc.w,  pcH = pc.h
-        auto tileView = reg.view<TileTag, Transform, Collider>();
-        tileView.each([&](const Transform& tt, const Collider& tc) {
-            bool sidewall = (g.direction == GravityDir::LEFT || g.direction == GravityDir::RIGHT);
-            float pcW = sidewall ? static_cast<float>(pc.h) : static_cast<float>(pc.w);
-            float pcH = sidewall ? static_cast<float>(pc.w) : static_cast<float>(pc.h);
+        // Tile collision — two-pass approach to prevent corner-climbing.
+        //
+        // Pass 1: gravity axis only (Y for DOWN/UP, X for LEFT/RIGHT).
+        //   Resolves landing on floors and hitting ceilings first, so pt.y is
+        //   correct before we ever check horizontal contacts.
+        // Pass 2: lateral axis only (X for DOWN/UP, Y for LEFT/RIGHT).
+        //   Now that the player sits at the right height, any horizontal overlap
+        //   with a wall tile is purely a wall contact — never a floor corner.
+        //
+        // This eliminates the "walk up onto a tile" bug where a single-pass
+        // resolver would pick resolveY on a wall tile's top corner before the
+        // floor tile had a chance to pin the player's Y position.
 
-            // Broad phase using correct world-space extents
+        bool sidewall = (g.direction == GravityDir::LEFT || g.direction == GravityDir::RIGHT);
+        float pcW = sidewall ? static_cast<float>(pc.h) : static_cast<float>(pc.w);
+        float pcH = sidewall ? static_cast<float>(pc.w) : static_cast<float>(pc.h);
+
+        auto tileView = reg.view<TileTag, Transform, Collider>();
+
+        // ── Pass 1: gravity axis ────────────────────────────────────────────
+        tileView.each([&](const Transform& tt, const Collider& tc) {
+            // Broad phase
             if (pt.x + pcW <= tt.x || pt.x >= tt.x + tc.w) return;
             if (pt.y + pcH <= tt.y || pt.y >= tt.y + tc.h) return;
 
-            // Compute overlap on each axis
-            float overlapLeft   = (pt.x + pcW) - tt.x;
-            float overlapRight  = (tt.x + tc.w) - pt.x;
             float overlapTop    = (pt.y + pcH) - tt.y;
             float overlapBottom = (tt.y + tc.h) - pt.y;
+            float overlapLeft   = (pt.x + pcW) - tt.x;
+            float overlapRight  = (tt.x + tc.w) - pt.x;
 
-            float minX = std::min(overlapLeft, overlapRight);
-            float minY = std::min(overlapTop,  overlapBottom);
+            switch (g.direction) {
+                case GravityDir::DOWN: {
+                    // Only resolve downward landing (player falling onto tile top)
+                    if (overlapTop < overlapBottom && overlapTop <= overlapLeft && overlapTop <= overlapRight) {
+                        bool wasFalling = g.velocity >= 0.0f;
+                        pt.y = tt.y - pcH;
+                        g.velocity = 0.0f;
+                        if (wasFalling) g.isGrounded = true;
+                    }
+                    // Ceiling hit (jumping up into tile bottom)
+                    else if (overlapBottom < overlapTop && overlapBottom <= overlapLeft && overlapBottom <= overlapRight) {
+                        bool wasFalling = g.velocity >= 0.0f;
+                        pt.y = tt.y + tc.h;
+                        g.velocity = 0.0f;
+                        // Don't set grounded when hitting ceiling from below
+                    }
+                    break;
+                }
+                case GravityDir::UP: {
+                    if (overlapBottom < overlapTop && overlapBottom <= overlapLeft && overlapBottom <= overlapRight) {
+                        bool wasFalling = g.velocity >= 0.0f;
+                        pt.y = tt.y + tc.h;
+                        g.velocity = 0.0f;
+                        if (wasFalling) g.isGrounded = true;
+                    } else if (overlapTop < overlapBottom && overlapTop <= overlapLeft && overlapTop <= overlapRight) {
+                        pt.y = tt.y - pcH;
+                        g.velocity = 0.0f;
+                    }
+                    break;
+                }
+                case GravityDir::LEFT: {
+                    if (overlapRight < overlapLeft && overlapRight <= overlapTop && overlapRight <= overlapBottom) {
+                        bool wasFalling = g.velocity >= 0.0f;
+                        pt.x = tt.x + tc.w;
+                        g.velocity = 0.0f;
+                        if (wasFalling) g.isGrounded = true;
+                    } else if (overlapLeft < overlapRight && overlapLeft <= overlapTop && overlapLeft <= overlapBottom) {
+                        pt.x = tt.x - pcW;
+                        g.velocity = 0.0f;
+                    }
+                    break;
+                }
+                case GravityDir::RIGHT: {
+                    if (overlapLeft < overlapRight && overlapLeft <= overlapTop && overlapLeft <= overlapBottom) {
+                        bool wasFalling = g.velocity >= 0.0f;
+                        pt.x = tt.x - pcW;
+                        g.velocity = 0.0f;
+                        if (wasFalling) g.isGrounded = true;
+                    } else if (overlapRight < overlapLeft && overlapRight <= overlapTop && overlapRight <= overlapBottom) {
+                        pt.x = tt.x + tc.w;
+                        g.velocity = 0.0f;
+                    }
+                    break;
+                }
+            }
+        });
 
-            // Bias resolution toward the gravity axis so the player lands cleanly.
-            bool resolveX = false;
-            bool resolveY = false;
+        // ── Pass 2: lateral axis ────────────────────────────────────────────
+        // Player Y is now correct from pass 1. Any remaining overlap with a tile
+        // is purely horizontal (wall contact). Push out laterally.
+        tileView.each([&](const Transform& tt, const Collider& tc) {
+            // Broad phase
+            if (pt.x + pcW <= tt.x || pt.x >= tt.x + tc.w) return;
+            if (pt.y + pcH <= tt.y || pt.y >= tt.y + tc.h) return;
+
+            float overlapLeft  = (pt.x + pcW) - tt.x;
+            float overlapRight = (tt.x + tc.w) - pt.x;
 
             switch (g.direction) {
                 case GravityDir::DOWN:
                 case GravityDir::UP:
-                    if      (g.velocity > 0.0f && overlapTop    < overlapBottom) resolveY = true;
-                    else if (g.velocity < 0.0f && overlapBottom < overlapTop)    resolveY = true;
-                    else    resolveY = (minY <= minX);
-                    resolveX = !resolveY;
+                    // Horizontal wall push-out
+                    if (overlapLeft < overlapRight) {
+                        pt.x = tt.x - pcW; // push left
+                    } else {
+                        pt.x = tt.x + tc.w; // push right
+                    }
                     break;
                 case GravityDir::LEFT:
-                case GravityDir::RIGHT:
-                    if      (g.velocity > 0.0f && overlapLeft  < overlapRight) resolveX = true;
-                    else if (g.velocity < 0.0f && overlapRight < overlapLeft)  resolveX = true;
-                    else    resolveX = (minX <= minY);
-                    resolveY = !resolveX;
+                case GravityDir::RIGHT: {
+                    // Vertical wall push-out
+                    float oTop    = (pt.y + pcH) - tt.y;
+                    float oBottom = (tt.y + tc.h) - pt.y;
+                    if (oTop < oBottom) {
+                        pt.y = tt.y - pcH;
+                    } else {
+                        pt.y = tt.y + tc.h;
+                    }
                     break;
-            }
-
-            if (resolveX) {
-                if (overlapLeft < overlapRight) {
-                    // Pushed left — right edge of player was inside tile
-                    pt.x = tt.x - pcW;
-                    g.velocity = 0.0f;
-                    if (g.direction == GravityDir::RIGHT)
-                        g.isGrounded = true;
-                } else {
-                    // Pushed right — left edge of player was inside tile
-                    pt.x = tt.x + tc.w;
-                    g.velocity = 0.0f;
-                    if (g.direction == GravityDir::LEFT)
-                        g.isGrounded = true;
-                }
-            } else {
-                if (overlapTop < overlapBottom) {
-                    // Pushed up — bottom edge of player was inside tile
-                    pt.y = tt.y - pcH;
-                    g.velocity = 0.0f;
-                    if (g.direction == GravityDir::DOWN)
-                        g.isGrounded = true;
-                } else {
-                    // Pushed down — top edge of player was inside tile
-                    pt.y = tt.y + tc.h;
-                    g.velocity = 0.0f;
-                    if (g.direction == GravityDir::UP)
-                        g.isGrounded = true;
                 }
             }
         });
