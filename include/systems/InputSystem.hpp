@@ -13,13 +13,38 @@ inline void InputSystem(entt::registry& reg, SDL_Event& e) {
                 case SDLK_A:
                     if (!g.isCrouching) {
                         v.dx    = -v.speed;
-                        r.flipH = !invertFlip;
+                        // Only set flip for horizontal movement on horizontal-gravity walls
+                        if (g.direction == GravityDir::DOWN || g.direction == GravityDir::UP)
+                            r.flipH = !invertFlip;
                     }
                     break;
                 case SDLK_D:
                     if (!g.isCrouching) {
                         v.dx    = v.speed;
-                        r.flipH = invertFlip;
+                        if (g.direction == GravityDir::DOWN || g.direction == GravityDir::UP)
+                            r.flipH = invertFlip;
+                    }
+                    break;
+                case SDLK_W:
+                    if (!g.isCrouching) {
+                        if (g.direction == GravityDir::LEFT) {
+                            // 90CW rotation: flipH=true makes sprite face up the wall
+                            r.flipH = true;
+                        } else if (g.direction == GravityDir::RIGHT) {
+                            // 90CCW rotation: flipH=false makes sprite face up the wall
+                            r.flipH = false;
+                        }
+                    }
+                    break;
+                case SDLK_S:
+                    if (!g.isCrouching) {
+                        if (g.direction == GravityDir::LEFT) {
+                            // 90CW rotation: flipH=false makes sprite face down the wall
+                            r.flipH = false;
+                        } else if (g.direction == GravityDir::RIGHT) {
+                            // 90CCW rotation: flipH=true makes sprite face down the wall
+                            r.flipH = true;
+                        }
                     }
                     break;
                 case SDLK_LCTRL:

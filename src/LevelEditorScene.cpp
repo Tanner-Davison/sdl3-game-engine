@@ -26,20 +26,29 @@ void LevelEditorScene::LoadPalette() {
             SDL_Surface* raw = IMG_Load(p.string().c_str());
             if (!raw) continue;
 
-            // Thumbnail for the palette sidebar
-            SDL_Surface* thumb = SDL_CreateSurface(PAL_ICON, PAL_ICON, raw->format);
+            // Convert to the screen's pixel format so blits never silently fail
+            // due to format mismatch. SDL_PIXELFORMAT_ARGB8888 is universally
+            // compatible with SDL_BlitSurfaceScaled on all platforms.
+            SDL_Surface* converted = SDL_ConvertSurface(raw, SDL_PIXELFORMAT_ARGB8888);
+            SDL_DestroySurface(raw);
+            if (!converted) continue;
+            SDL_SetSurfaceBlendMode(converted, SDL_BLENDMODE_BLEND);
+
+            // Pre-scaled thumbnail (PAL_ICON x PAL_ICON) for the sidebar grid
+            SDL_Surface* thumb = SDL_CreateSurface(PAL_ICON, PAL_ICON, SDL_PIXELFORMAT_ARGB8888);
             if (thumb) {
-                SDL_SetSurfaceBlendMode(thumb, SDL_BLENDMODE_BLEND);
-                SDL_Rect src = {0, 0, raw->w, raw->h};
+                SDL_SetSurfaceBlendMode(thumb, SDL_BLENDMODE_NONE);
+                SDL_Rect src = {0, 0, converted->w, converted->h};
                 SDL_Rect dst = {0, 0, PAL_ICON, PAL_ICON};
-                SDL_BlitSurfaceScaled(raw, &src, thumb, &dst, SDL_SCALEMODE_LINEAR);
+                SDL_BlitSurfaceScaled(converted, &src, thumb, &dst, SDL_SCALEMODE_LINEAR);
+                SDL_SetSurfaceBlendMode(thumb, SDL_BLENDMODE_BLEND);
             }
 
             PaletteItem item;
             item.path  = p.string();
             item.label = p.stem().string();
             item.thumb = thumb;
-            item.full  = raw; // keep full-res for rendering placed tiles
+            item.full  = converted; // keep full-res for rendering placed tiles
             mPaletteItems.push_back(std::move(item));
         }
     }
@@ -121,7 +130,9 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
             float fmx, fmy; SDL_GetMouseState(&fmx, &fmy); mx=(int)fmx; my=(int)fmy;
             if (mx >= CanvasW()) {
                 mPaletteScroll = std::max(0, mPaletteScroll - (int)e.wheel.y);
-                int maxScroll = std::max(0, (int)mPaletteItems.size() - 8);
+                // clamp: scroll is in rows of PAL_COLS
+                int totalRows  = ((int)mPaletteItems.size() + PAL_COLS - 1) / PAL_COLS;
+                int maxScroll  = std::max(0, totalRows - 1);
                 mPaletteScroll = std::min(mPaletteScroll, maxScroll);
             } else {
                 // Scroll over canvas adjusts tile size
@@ -192,14 +203,23 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
             SaveLevel(mLevel, path); mLaunchGame = true; return true;
         }
 
-        // Palette click — select tile
+        // Palette click — select tile (mirrors 2-column grid layout in Render)
         if (mActiveTool == Tool::Tile && mx >= CanvasW() && my >= TOOLBAR_H) {
-            int relY   = my - TOOLBAR_H - 4;
-            int itemH  = PAL_ICON + 6;
-            int idx    = mPaletteScroll + relY / itemH;
-            if (idx >= 0 && idx < (int)mPaletteItems.size()) {
-                mSelectedTile = idx;
-                SetStatus("Selected: " + mPaletteItems[idx].label);
+            constexpr int PAD   = 4;
+            constexpr int LBL_H = 14;
+            const int cellW = (PALETTE_W - PAD * (PAL_COLS + 1)) / PAL_COLS;
+            const int cellH = cellW + LBL_H;
+            const int itemH = cellH + PAD;
+            int relX = mx - CanvasW() - PAD;
+            int relY = my - TOOLBAR_H - PAD;
+            int col  = relX / (cellW + PAD);
+            int row  = relY / itemH;
+            if (col >= 0 && col < PAL_COLS) {
+                int idx = (mPaletteScroll + row) * PAL_COLS + col;
+                if (idx >= 0 && idx < (int)mPaletteItems.size()) {
+                    mSelectedTile = idx;
+                    SetStatus("Selected: " + mPaletteItems[idx].label);
+                }
             }
             return true;
         }
@@ -384,41 +404,59 @@ void LevelEditorScene::Render(Window& window) {
     Text palSize("Size: "+std::to_string(mTileW), SDL_Color{180,200,255,255}, cw+4, 40, 10);
     palHdr.Render(screen); palHdr2.Render(screen); palSize.Render(screen);
 
-    // Palette items
-    int itemH  = PAL_ICON + 6;
-    int visRows = (window.GetHeight() - TOOLBAR_H) / itemH;
-    int startI  = mPaletteScroll;
-    int endI    = std::min(startI + visRows + 1, (int)mPaletteItems.size());
+    // Palette items — 2-column grid, thumbnail fills cell, label below
+    static constexpr int PAL_PADDING  = 4;   // gap between cells
+    static constexpr int PAL_LBL_H    = 14;  // pixel rows reserved for the label
+    const int cellW   = (PALETTE_W - PAL_PADDING * (PAL_COLS + 1)) / PAL_COLS;
+    const int cellH   = cellW + PAL_LBL_H;   // square image + label strip
+    const int itemH   = cellH + PAL_PADDING;
+    const int visRows = (window.GetHeight() - TOOLBAR_H) / itemH;
+    // scroll is in rows of PAL_COLS items
+    const int startRow = mPaletteScroll;
+    const int startI   = startRow * PAL_COLS;
+    const int endI     = std::min(startI + (visRows + 1) * PAL_COLS,
+                                  (int)mPaletteItems.size());
 
     for (int i = startI; i < endI; i++) {
-        int row  = i - startI;
-        int iy   = TOOLBAR_H + 4 + row * itemH;
-        SDL_Rect cell = {cw+2, iy, PALETTE_W-4, PAL_ICON+2};
+        int col  = (i - startI) % PAL_COLS;
+        int row  = (i - startI) / PAL_COLS;
+        int ix   = cw + PAL_PADDING + col * (cellW + PAL_PADDING);
+        int iy   = TOOLBAR_H + PAL_PADDING + row * itemH;
 
         bool sel = (i == mSelectedTile && mActiveTool == Tool::Tile);
-        DrawRect(screen, cell, sel ? SDL_Color{50,100,200,200} : SDL_Color{35,35,50,200});
-        DrawOutline(screen, cell, sel ? SDL_Color{100,180,255,255} : SDL_Color{60,60,80,255});
 
-        if (mPaletteItems[i].thumb) {
-            SDL_Rect tdst = {cw+4, iy+1, PAL_ICON, PAL_ICON};
-            SDL_BlitSurface(mPaletteItems[i].thumb, nullptr, screen, &tdst);
+        // Cell background
+        SDL_Rect cell = {ix, iy, cellW, cellH};
+        DrawRect(screen,   cell, sel ? SDL_Color{50,100,200,220} : SDL_Color{35,35,55,220});
+        DrawOutline(screen, cell, sel ? SDL_Color{100,180,255,255} : SDL_Color{55,55,80,255});
+
+        // Thumbnail — use the pre-scaled thumb for speed; fall back to full
+        SDL_Surface* thumbSrc = mPaletteItems[i].thumb
+                              ? mPaletteItems[i].thumb
+                              : mPaletteItems[i].full;
+        if (thumbSrc) {
+            SDL_Rect imgDst = {ix + 1, iy + 1, cellW - 2, cellW - 2};
+            SDL_BlitSurfaceScaled(thumbSrc, nullptr, screen, &imgDst, SDL_SCALEMODE_LINEAR);
+        } else {
+            DrawRect(screen, {ix+1, iy+1, cellW-2, cellW-2}, {60,40,80,255});
         }
 
-        // Truncated label
+        // Label strip below the image
         std::string lbl = mPaletteItems[i].label;
-        if (lbl.size() > 10) lbl = lbl.substr(0,9) + "~";
-        Uint8 lr=sel?255:180, lg=sel?255:180, lb=sel?255:200;
-        Text lblT(lbl, SDL_Color{lr,lg,lb,255},
-                  cw + PAL_ICON + 6, iy + PAL_ICON/2 - 7, 10);
+        if ((int)lbl.size() > 9) lbl = lbl.substr(0, 8) + "~";
+        Uint8 lr = sel ? 255 : 170, lg = sel ? 255 : 170, lb = sel ? 255 : 190;
+        Text lblT(lbl, SDL_Color{lr, lg, lb, 255},
+                  ix + 2, iy + cellW + 2, 9);
         lblT.Render(screen);
     }
 
     // Scroll indicator
-    if ((int)mPaletteItems.size() > visRows) {
-        float pct = (float)mPaletteScroll / std::max(1,(int)mPaletteItems.size()-visRows);
-        int   sh  = std::max(20, (int)(window.GetHeight() * visRows / (float)mPaletteItems.size()));
-        int   sy  = TOOLBAR_H + (int)((window.GetHeight()-TOOLBAR_H-sh) * pct);
-        DrawRect(screen, {cw+PALETTE_W-4, sy, 3, sh}, {100,150,255,180});
+    int totalRows = ((int)mPaletteItems.size() + PAL_COLS - 1) / PAL_COLS;
+    if (totalRows > visRows) {
+        float pct = (float)mPaletteScroll / std::max(1, totalRows - visRows);
+        int   sh  = std::max(20, (int)((window.GetHeight() - TOOLBAR_H) * visRows / (float)totalRows));
+        int   sy  = TOOLBAR_H + (int)((window.GetHeight() - TOOLBAR_H - sh) * pct);
+        DrawRect(screen, {cw + PALETTE_W - 4, sy, 3, sh}, {100, 150, 255, 180});
     }
 
     // Entity counts

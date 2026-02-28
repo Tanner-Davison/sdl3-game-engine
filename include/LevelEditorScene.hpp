@@ -31,9 +31,9 @@ class LevelEditorScene : public Scene {
     // --- Constants ---
     static constexpr int GRID       = 40;
     static constexpr int TOOLBAR_H  = 60;
-    static constexpr int PALETTE_W  = 120; // right-side palette panel width
+    static constexpr int PALETTE_W  = 180; // right-side palette panel width
     static constexpr int ICON_SIZE  = 40;
-    static constexpr int PAL_ICON   = 50;  // palette thumbnail size
+    static constexpr int PAL_ICON   = 76;  // palette thumbnail size (fills cell minus padding)
     static constexpr int PAL_COLS   = 2;
     static constexpr float ENEMY_SPEED = 120.0f;
 

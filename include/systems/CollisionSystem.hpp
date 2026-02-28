@@ -35,15 +35,13 @@ inline void CollisionSystem(entt::registry& reg, float dt, bool& gameOver, int& 
                         const Collider&     pc,
                         Health&             health,
                         InvincibilityTimer& inv) {
-        // AABB overlap helper — accounts for side-wall rotation
+        // AABB overlap helper — accounts for side-wall collider rotation.
+        // For LEFT/RIGHT gravity the collider's h becomes the X extent and w the Y extent.
         auto overlap = [&](const Transform& et, const Collider& ec) -> bool {
-            bool  sidewall  = g.direction == GravityDir::LEFT || g.direction == GravityDir::RIGHT;
-            int   pcW       = sidewall ? pc.h : pc.w;
-            int   pcH       = sidewall ? pc.w : pc.h;
-            float adjustedX = pt.x;
-            if (g.direction == GravityDir::RIGHT)
-                adjustedX -= static_cast<float>(pc.h - PLAYER_SPRITE_WIDTH);
-            bool overlapX = adjustedX < et.x + ec.w && adjustedX + pcW > et.x;
+            bool sidewall = g.direction == GravityDir::LEFT || g.direction == GravityDir::RIGHT;
+            int  pcW      = sidewall ? pc.h : pc.w;
+            int  pcH      = sidewall ? pc.w : pc.h;
+            bool overlapX = pt.x < et.x + ec.w && pt.x + pcW > et.x;
             bool overlapY = pt.y < et.y + ec.h && pt.y + pcH > et.y;
             return overlapX && overlapY;
         };
@@ -71,9 +69,8 @@ inline void CollisionSystem(entt::registry& reg, float dt, bool& gameOver, int& 
                     return feetEdge >= et.x;
                 }
                 case GravityDir::RIGHT: {
-                    // Feet = right edge (pt.x + pc.w), moving rightward
-                    float adjustedX = pt.x - static_cast<float>(pc.h - PLAYER_SPRITE_WIDTH);
-                    float feetEdge  = adjustedX + pc.h;
+                    // Feet = right edge (pt.x + pc.h), moving rightward
+                    float feetEdge = pt.x + pc.h;
                     return feetEdge <= et.x + ec.w;
                 }
             }
@@ -149,11 +146,10 @@ inline void CollisionSystem(entt::registry& reg, float dt, bool& gameOver, int& 
                     break;
                 }
                 case GravityDir::RIGHT: {
-                    float adjustedX   = pt.x - static_cast<float>(pc.h - PLAYER_SPRITE_WIDTH);
-                    float playerRight = adjustedX + pc.h;
+                    float playerRight = pt.x + pc.h;
                     bool  vertOverlap = pt.y < et.y + ec.h && pt.y + pc.w > et.y;
                     if (vertOverlap && playerRight >= et.x && playerRight <= et.x + ec.w) {
-                        pt.x         = et.x - pc.h + static_cast<float>(pc.h - PLAYER_SPRITE_WIDTH);
+                        pt.x         = et.x - pc.h;
                         g.velocity   = 0.0f;
                         g.isGrounded = true;
                         onDeadEnemy  = true;
@@ -178,38 +174,79 @@ inline void CollisionSystem(entt::registry& reg, float dt, bool& gameOver, int& 
             }
         }
 
-        // Tile/prop collision — solid AABB push-out
+        // Tile/prop collision — gravity-aware AABB push-out.
+        // For LEFT/RIGHT gravity the collider is rotated in world-space:
+        //   pcW = extent along X  = pc.h (the tall axis becomes the horizontal depth)
+        //   pcH = extent along Y  = pc.w (the narrow axis becomes the vertical span)
+        // For UP/DOWN gravity the collider is upright:
+        //   pcW = pc.w,  pcH = pc.h
         auto tileView = reg.view<TileTag, Transform, Collider>();
         tileView.each([&](const Transform& tt, const Collider& tc) {
-            // Broad phase
-            if (pt.x + pc.w <= tt.x || pt.x >= tt.x + tc.w) return;
-            if (pt.y + pc.h <= tt.y || pt.y >= tt.y + tc.h) return;
+            bool sidewall = (g.direction == GravityDir::LEFT || g.direction == GravityDir::RIGHT);
+            float pcW = sidewall ? static_cast<float>(pc.h) : static_cast<float>(pc.w);
+            float pcH = sidewall ? static_cast<float>(pc.w) : static_cast<float>(pc.h);
+
+            // Broad phase using correct world-space extents
+            if (pt.x + pcW <= tt.x || pt.x >= tt.x + tc.w) return;
+            if (pt.y + pcH <= tt.y || pt.y >= tt.y + tc.h) return;
 
             // Compute overlap on each axis
-            float overlapLeft   = (pt.x + pc.w) - tt.x;
+            float overlapLeft   = (pt.x + pcW) - tt.x;
             float overlapRight  = (tt.x + tc.w) - pt.x;
-            float overlapTop    = (pt.y + pc.h) - tt.y;
+            float overlapTop    = (pt.y + pcH) - tt.y;
             float overlapBottom = (tt.y + tc.h) - pt.y;
 
-            // Resolve on the axis of smallest penetration
             float minX = std::min(overlapLeft, overlapRight);
-            float minY = std::min(overlapTop, overlapBottom);
+            float minY = std::min(overlapTop,  overlapBottom);
 
-            if (minX < minY) {
-                // Push out horizontally
-                if (overlapLeft < overlapRight)
-                    pt.x = tt.x - pc.w;
-                else
-                    pt.x = tt.x + tc.w;
-            } else {
-                // Push out vertically
-                if (overlapTop < overlapBottom) {
-                    pt.y         = tt.y - pc.h;
-                    g.velocity   = 0.0f;
-                    g.isGrounded = true;
-                } else {
-                    pt.y       = tt.y + tc.h;
+            // Bias resolution toward the gravity axis so the player lands cleanly.
+            bool resolveX = false;
+            bool resolveY = false;
+
+            switch (g.direction) {
+                case GravityDir::DOWN:
+                case GravityDir::UP:
+                    if      (g.velocity > 0.0f && overlapTop    < overlapBottom) resolveY = true;
+                    else if (g.velocity < 0.0f && overlapBottom < overlapTop)    resolveY = true;
+                    else    resolveY = (minY <= minX);
+                    resolveX = !resolveY;
+                    break;
+                case GravityDir::LEFT:
+                case GravityDir::RIGHT:
+                    if      (g.velocity > 0.0f && overlapLeft  < overlapRight) resolveX = true;
+                    else if (g.velocity < 0.0f && overlapRight < overlapLeft)  resolveX = true;
+                    else    resolveX = (minX <= minY);
+                    resolveY = !resolveX;
+                    break;
+            }
+
+            if (resolveX) {
+                if (overlapLeft < overlapRight) {
+                    // Pushed left — right edge of player was inside tile
+                    pt.x = tt.x - pcW;
                     g.velocity = 0.0f;
+                    if (g.direction == GravityDir::RIGHT)
+                        g.isGrounded = true;
+                } else {
+                    // Pushed right — left edge of player was inside tile
+                    pt.x = tt.x + tc.w;
+                    g.velocity = 0.0f;
+                    if (g.direction == GravityDir::LEFT)
+                        g.isGrounded = true;
+                }
+            } else {
+                if (overlapTop < overlapBottom) {
+                    // Pushed up — bottom edge of player was inside tile
+                    pt.y = tt.y - pcH;
+                    g.velocity = 0.0f;
+                    if (g.direction == GravityDir::DOWN)
+                        g.isGrounded = true;
+                } else {
+                    // Pushed down — top edge of player was inside tile
+                    pt.y = tt.y + tc.h;
+                    g.velocity = 0.0f;
+                    if (g.direction == GravityDir::UP)
+                        g.isGrounded = true;
                 }
             }
         });

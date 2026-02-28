@@ -120,16 +120,52 @@ inline void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
         auto* roff  = reg.try_get<RenderOffset>(entity);
 
         if (g && g->active) {
-            // Use src.w/h (pre-rotation) for flush so sprite sits exactly on the wall
-            if (g->direction == GravityDir::RIGHT) renderX -= (frame->w - src.w);
-            if (g->direction == GravityDir::UP)    renderY -= (frame->h - src.h);
-            // Rotate the render offset to match the gravity direction
-            if (roff) {
+            // Flush the sprite to sit exactly at the player's world-space position.
+            // t.x/t.y is always the top-left of the collider in its upright orientation.
+            // After rotation the frame dimensions swap, so we must shift renderX/Y so
+            // the rotated sprite's "floor" edge aligns with the collider's floor edge.
+            //
+            // DOWN:  no adjustment — t.x,t.y is already top-left, sprite hangs down.
+            // UP:    sprite is flipped 180°; frame->h == src.h, frame->w == src.w.
+            //        The top of the collider (t.y) is the floor, so the sprite's
+            //        bottom edge must sit at t.y + col->h: renderY = t.y - (frame->h - col->h)
+            // LEFT:  sprite rotated 90CW; frame->w == src.h, frame->h == src.w.
+            //        Floor is the left wall (t.x=0); sprite hangs rightward from t.x.
+            //        No X shift needed; Y needs centering offset.
+            // RIGHT: sprite rotated 90CCW; frame->w == src.h, frame->h == src.w.
+            //        Floor is the right wall; t.x + col->h is the wall.
+            //        Sprite right edge = renderX + frame->w must equal t.x + col->h.
+            //        So renderX = t.x + col->h - frame->w.
+            if (col) {
+                // For each wall, two things must be true:
+                //   1. The sprite's "floor" edge aligns with the collider's floor edge.
+                //   2. The sprite is centered over the collider on the perpendicular axis.
+                //
+                // col->w=32 (narrow), col->h=60 (tall/deep), frame=80x80 after rotation.
+                // Centering offset on perpendicular axis = (frame_perp - col_perp) / 2
+                // which equals roff->x (=-24) since roff was tuned for exactly this.
                 switch (g->direction) {
-                    case GravityDir::DOWN:  renderX += roff->x; renderY += roff->y; break;
-                    case GravityDir::UP:    renderX -= roff->x; renderY -= roff->y; break;
-                    case GravityDir::LEFT:  renderX += roff->y; renderY -= roff->x; break;
-                    case GravityDir::RIGHT: renderX -= roff->y; renderY += roff->x; break;
+                    case GravityDir::DOWN:
+                        // Upright: flush top-left naturally, apply full roff for centering
+                        if (roff) { renderX += roff->x; renderY += roff->y; }
+                        break;
+                    case GravityDir::UP:
+                        // 180° rotation: floor=top edge (t.y), sprite bottom=t.y+col->h
+                        renderY -= (frame->h - col->h); // flush floor edge
+                        // Center horizontally over the narrow collider (same as roff->x)
+                        renderX += (roff ? roff->x : -(frame->w - col->w) / 2);
+                        break;
+                    case GravityDir::LEFT:
+                        // 90CW: floor=left edge (t.x), sprite extends right naturally
+                        // Center vertically over the narrow collider
+                        renderY += (roff ? roff->x : -(frame->h - col->w) / 2);
+                        break;
+                    case GravityDir::RIGHT:
+                        // 90CCW: floor=right edge (t.x+col->h), flush left
+                        renderX = static_cast<int>(t.x) + col->h - frame->w;
+                        // Center vertically over the narrow collider
+                        renderY += (roff ? roff->x : -(frame->h - col->w) / 2);
+                        break;
                 }
             }
         } else {
@@ -153,22 +189,16 @@ inline void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
                                       ? SDL_MapRGB(fmt, nullptr, 0, 255, 0)
                                       : SDL_MapRGB(fmt, nullptr, 255, 0, 0);
             constexpr int thick = 1;
-            int  hx = static_cast<int>(t.x);
-            int  hy = static_cast<int>(t.y);
-            int  cw = col->w;
-            int  ch = col->h;
-            if (g && g->active) {
-                switch (g->direction) {
-                    case GravityDir::DOWN: break;
-                    case GravityDir::UP:   break;
-                    case GravityDir::LEFT:
-                        cw = col->h; ch = col->w;
-                        break;
-                    case GravityDir::RIGHT:
-                        hx -= (frameW - col->w);
-                        cw  = col->h; ch = col->w;
-                        break;
-                }
+            // Hitbox origin = t.x, t.y — these are the true collider corners,
+            // no RenderOffset involved. Just swap w/h for sidewall gravity.
+            int hx = static_cast<int>(t.x);
+            int hy = static_cast<int>(t.y);
+            int cw = col->w;
+            int ch = col->h;
+            if (g && g->active &&
+                (g->direction == GravityDir::LEFT || g->direction == GravityDir::RIGHT)) {
+                cw = col->h;
+                ch = col->w;
             }
             SDL_Rect top    = {hx,      hy,      cw,    thick};
             SDL_Rect bottom = {hx,      hy + ch, cw,    thick};
