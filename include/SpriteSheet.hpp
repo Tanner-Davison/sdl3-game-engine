@@ -55,7 +55,8 @@ class SpriteSheet {
      * auto frames = coins.GetAnimation("Gold_");
      * @endcode
      */
-    SpriteSheet(const std::string& directory, const std::string& prefix, int frameCount, int targetW = 0, int targetH = 0);
+    // padDigits: zero-pad frame numbers to this width (0 = no padding, 3 = "000", "001"...)
+    SpriteSheet(const std::string& directory, const std::string& prefix, int frameCount, int targetW = 0, int targetH = 0, int padDigits = 0);
 
     /// Frees the loaded SDL_Surface.
     ~SpriteSheet();

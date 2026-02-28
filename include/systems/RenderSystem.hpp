@@ -31,7 +31,10 @@ inline void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
                 if (static_cast<int>(inv->remaining * 10.0f) % 2 == 0)
                     SDL_SetSurfaceColorMod(r.sheet, 255, 0, 0);
 
-            SDL_Rect dest = {static_cast<int>(t.x), static_cast<int>(t.y), src.w, src.h};
+            auto* roff2 = reg.try_get<RenderOffset>(entity);
+            int   rx    = static_cast<int>(t.x) + (roff2 ? roff2->x : 0);
+            int   ry    = static_cast<int>(t.y) + (roff2 ? roff2->y : 0);
+            SDL_Rect dest = {rx, ry, src.w, src.h};
             SDL_BlitSurface(r.sheet, &src, screen, &dest);
             SDL_SetSurfaceColorMod(r.sheet, 255, 255, 255);
 
@@ -111,13 +114,26 @@ inline void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
         }
 
         // Wall-flush position adjustment
+        // src dimensions = unrotated frame size; frame dimensions = post-rotation
         int renderX = static_cast<int>(t.x);
         int renderY = static_cast<int>(t.y);
+        auto* roff  = reg.try_get<RenderOffset>(entity);
+
         if (g && g->active) {
-            int lw = col ? col->w : PLAYER_SPRITE_WIDTH;
-            int lh = col ? col->h : PLAYER_SPRITE_HEIGHT;
-            if (g->direction == GravityDir::RIGHT) renderX -= (frame->w - lw);
-            if (g->direction == GravityDir::UP)    renderY -= (frame->h - lh);
+            // Use src.w/h (pre-rotation) for flush so sprite sits exactly on the wall
+            if (g->direction == GravityDir::RIGHT) renderX -= (frame->w - src.w);
+            if (g->direction == GravityDir::UP)    renderY -= (frame->h - src.h);
+            // Rotate the render offset to match the gravity direction
+            if (roff) {
+                switch (g->direction) {
+                    case GravityDir::DOWN:  renderX += roff->x; renderY += roff->y; break;
+                    case GravityDir::UP:    renderX -= roff->x; renderY -= roff->y; break;
+                    case GravityDir::LEFT:  renderX += roff->y; renderY -= roff->x; break;
+                    case GravityDir::RIGHT: renderX -= roff->y; renderY += roff->x; break;
+                }
+            }
+        } else {
+            if (roff) { renderX += roff->x; renderY += roff->y; }
         }
 
         // Invincibility flash

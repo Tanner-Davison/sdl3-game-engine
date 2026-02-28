@@ -62,6 +62,16 @@ struct CoinTag {};
 // Tag: marks a stomped/dead enemy — no longer harmful, acts as a platform
 struct DeadTag {};
 
+// Tag: marks a solid tile/prop — blocks player movement
+struct TileTag {};
+
+// Render offset — draws the sprite offset from Transform position
+// Used to center large sprites over their collision box
+struct RenderOffset {
+    int x = 0;
+    int y = 0;
+};
+
 // Health
 struct Health {
     float current = PLAYER_MAX_HEALTH;
@@ -80,14 +90,15 @@ struct InvincibilityTimer {
     bool  isInvincible = false;
 };
 
-// Holds all animation frame sets for an entity
+// Holds all animation frame sets and their source sheets for an entity.
+// sheet pointers are non-owning — the SpriteSheet objects must outlive this.
 struct AnimationSet {
-    std::vector<SDL_Rect> idle;
-    std::vector<SDL_Rect> walk;
-    std::vector<SDL_Rect> jump;
-    std::vector<SDL_Rect> hurt;
-    std::vector<SDL_Rect> duck;
-    std::vector<SDL_Rect> front;
+    std::vector<SDL_Rect> idle;  SDL_Surface* idleSheet  = nullptr;
+    std::vector<SDL_Rect> walk;  SDL_Surface* walkSheet  = nullptr;
+    std::vector<SDL_Rect> jump;  SDL_Surface* jumpSheet  = nullptr;
+    std::vector<SDL_Rect> hurt;  SDL_Surface* hurtSheet  = nullptr;
+    std::vector<SDL_Rect> duck;  SDL_Surface* duckSheet  = nullptr;
+    std::vector<SDL_Rect> front; SDL_Surface* frontSheet = nullptr;
 };
 
 enum class GravityDir { DOWN, UP, LEFT, RIGHT };

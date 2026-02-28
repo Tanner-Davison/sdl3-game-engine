@@ -20,7 +20,7 @@ SpriteSheet::SpriteSheet(const std::string& imageFile, const std::string& coordF
     LoadCoordinates(coordFile);
 }
 
-SpriteSheet::SpriteSheet(const std::string& directory, const std::string& prefix, int frameCount, int targetW, int targetH)
+SpriteSheet::SpriteSheet(const std::string& directory, const std::string& prefix, int frameCount, int targetW, int targetH, int padDigits)
     : surface(nullptr) {
     std::string dir = directory;
     if (!dir.empty() && dir.back() != '/')
@@ -29,8 +29,15 @@ SpriteSheet::SpriteSheet(const std::string& directory, const std::string& prefix
     std::vector<SDL_Surface*> frameSurfaces;
     int frameW = 0, frameH = 0;
 
-    for (int i = 1; i <= frameCount; i++) {
-        std::string  path = dir + prefix + std::to_string(i) + ".png";
+    // Determine start index: padded sequences start at 0, unpadded at 1
+    int startIdx = (padDigits > 0) ? 0 : 1;
+    int endIdx   = startIdx + frameCount - 1;
+
+    for (int i = startIdx; i <= endIdx; i++) {
+        std::string numStr = std::to_string(i);
+        if (padDigits > 0)
+            numStr = std::string(std::max(0, padDigits - (int)numStr.size()), '0') + numStr;
+        std::string  path = dir + prefix + numStr + ".png";
         SDL_Surface* s    = IMG_Load(path.c_str());
         if (!s) {
             std::print("Failed to load frame: {}\n{}\n", path, SDL_GetError());
@@ -68,7 +75,11 @@ SpriteSheet::SpriteSheet(const std::string& directory, const std::string& prefix
         SDL_Rect dest = {i * frameW, 0, frameW, frameH};
         SDL_SetSurfaceBlendMode(frameSurfaces[i], SDL_BLENDMODE_NONE);
         SDL_BlitSurface(frameSurfaces[i], nullptr, surface, &dest);
-        frames[prefix + std::to_string(i + 1)] = {i * frameW, 0, frameW, frameH};
+        int         frameIdx = startIdx + i;
+        std::string frameKey = std::to_string(frameIdx);
+        if (padDigits > 0)
+            frameKey = std::string(std::max(0, padDigits - (int)frameKey.size()), '0') + frameKey;
+        frames[prefix + frameKey] = {i * frameW, 0, frameW, frameH};
         SDL_DestroySurface(frameSurfaces[i]);
     }
 

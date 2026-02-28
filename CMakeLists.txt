@@ -12,6 +12,7 @@ find_package(SDL3 CONFIG REQUIRED)
 find_package(SDL3_image CONFIG REQUIRED)
 find_package(SDL3_ttf CONFIG REQUIRED)
 find_package(EnTT CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 find_package(PNG REQUIRED)
 find_package(ZLIB REQUIRED)
 
@@ -20,6 +21,7 @@ set(SOURCES
     src/TitleScene.cpp
     src/GameScene.cpp
     src/LevelTwo.cpp
+    src/LevelEditorScene.cpp
     src/Window.cpp
     src/Rectangle.cpp
     src/UI.cpp
@@ -41,6 +43,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     SDL3_image::SDL3_image
     SDL3_ttf::SDL3_ttf
     EnTT::EnTT
+    nlohmann_json::nlohmann_json
     PNG::PNG
     ZLIB::ZLIB
 )

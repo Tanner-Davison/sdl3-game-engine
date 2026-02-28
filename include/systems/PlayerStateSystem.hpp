@@ -1,5 +1,6 @@
 #pragma once
 #include <Components.hpp>
+#include <SDL3/SDL.h>
 #include <entt/entt.hpp>
 
 /**
@@ -16,7 +17,7 @@
  * -# Duck  — when crouching
  * -# Idle  — fallback when stationary
  */
-inline constexpr int PLAYER_DUCK_HEIGHT = 71; // p1_duck frame height from spritesheet
+inline constexpr int PLAYER_DUCK_HEIGHT = 50; // knight slide is shorter than standing height
 
 inline void PlayerStateSystem(entt::registry& reg) {
     auto view = reg.view<PlayerTag,
@@ -29,7 +30,8 @@ inline void PlayerStateSystem(entt::registry& reg) {
                          AnimationSet,
                          InvincibilityTimer>();
 
-    view.each([](const Velocity&           v,
+    view.each([&reg](entt::entity           entity,
+                 const Velocity&           v,
                  const GravityState&       g,
                  Transform&                t,
                  Collider&                 col,
@@ -72,6 +74,27 @@ inline void PlayerStateSystem(entt::registry& reg) {
         }
 
         if (newFrames && anim.currentAnim != newID) {
+            // Swap the sheet if the new animation lives on a different surface
+            SDL_Surface* newSheet = nullptr;
+            switch (newID) {
+                case AnimationID::IDLE:  newSheet = set.idleSheet;  break;
+                case AnimationID::WALK:  newSheet = set.walkSheet;  break;
+                case AnimationID::JUMP:  newSheet = set.jumpSheet;  break;
+                case AnimationID::HURT:  newSheet = set.hurtSheet;  break;
+                case AnimationID::DUCK:  newSheet = set.duckSheet;  break;
+                case AnimationID::FRONT: newSheet = set.frontSheet; break;
+                default: break;
+            }
+            if (newSheet && newSheet != r.sheet) {
+                r.sheet = newSheet;
+                // Invalidate flip cache — it was built for the old sheet
+                if (reg.all_of<FlipCache>(entity)) {
+                    auto& fc = reg.get<FlipCache>(entity);
+                    for (auto* s : fc.frames) if (s) SDL_DestroySurface(s);
+                    fc.frames.clear();
+                }
+            }
+
             bool wasD = anim.currentAnim == AnimationID::DUCK;
             bool nowD = newID            == AnimationID::DUCK;
             if (!wasD && nowD || wasD && !nowD) {

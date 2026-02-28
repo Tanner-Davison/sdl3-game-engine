@@ -178,6 +178,42 @@ inline void CollisionSystem(entt::registry& reg, float dt, bool& gameOver, int& 
             }
         }
 
+        // Tile/prop collision — solid AABB push-out
+        auto tileView = reg.view<TileTag, Transform, Collider>();
+        tileView.each([&](const Transform& tt, const Collider& tc) {
+            // Broad phase
+            if (pt.x + pc.w <= tt.x || pt.x >= tt.x + tc.w) return;
+            if (pt.y + pc.h <= tt.y || pt.y >= tt.y + tc.h) return;
+
+            // Compute overlap on each axis
+            float overlapLeft   = (pt.x + pc.w) - tt.x;
+            float overlapRight  = (tt.x + tc.w) - pt.x;
+            float overlapTop    = (pt.y + pc.h) - tt.y;
+            float overlapBottom = (tt.y + tc.h) - pt.y;
+
+            // Resolve on the axis of smallest penetration
+            float minX = std::min(overlapLeft, overlapRight);
+            float minY = std::min(overlapTop, overlapBottom);
+
+            if (minX < minY) {
+                // Push out horizontally
+                if (overlapLeft < overlapRight)
+                    pt.x = tt.x - pc.w;
+                else
+                    pt.x = tt.x + tc.w;
+            } else {
+                // Push out vertically
+                if (overlapTop < overlapBottom) {
+                    pt.y         = tt.y - pc.h;
+                    g.velocity   = 0.0f;
+                    g.isGrounded = true;
+                } else {
+                    pt.y       = tt.y + tc.h;
+                    g.velocity = 0.0f;
+                }
+            }
+        });
+
         // Coin collection — only in gravity mode
         if (g.active) {
             coinView.each([&](entt::entity coinEntity, const Transform& ct, const Collider& cc) {
