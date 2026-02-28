@@ -7,17 +7,55 @@
 #define DEBUG_HITBOXES
 
 inline void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
+    // Cache format details once per frame — same for all entities
+    const SDL_PixelFormatDetails* fmt = SDL_GetPixelFormatDetails(screen->format);
+
     auto view = reg.view<Transform, Renderable, AnimationState>();
-    view.each([&reg, screen](entt::entity          entity,
-                             const Transform&      t,
-                             Renderable&           r,
-                             const AnimationState& anim) {
+    view.each([&reg, screen, fmt](entt::entity          entity,
+                                  const Transform&      t,
+                                  Renderable&           r,
+                                  const AnimationState& anim) {
         if (r.frames.empty())
             return;
 
         const SDL_Rect& src = r.frames[anim.currentFrame];
+        auto*           g   = reg.try_get<GravityState>(entity);
+        auto*           inv = reg.try_get<InvincibilityTimer>(entity);
+        auto*           col = reg.try_get<Collider>(entity);
 
-        // Extract current frame from original sheet — rects are always in original space
+        // Fast path: no flip, no rotation — blit directly from sheet to screen
+        bool needsFlip     = r.flipH;
+        bool needsRotation = g && g->active && g->direction != GravityDir::DOWN;
+        if (!needsFlip && !needsRotation) {
+            if (inv && inv->isInvincible)
+                if (static_cast<int>(inv->remaining * 10.0f) % 2 == 0)
+                    SDL_SetSurfaceColorMod(r.sheet, 255, 0, 0);
+
+            SDL_Rect dest = {static_cast<int>(t.x), static_cast<int>(t.y), src.w, src.h};
+            SDL_BlitSurface(r.sheet, &src, screen, &dest);
+            SDL_SetSurfaceColorMod(r.sheet, 255, 255, 255);
+
+#ifdef DEBUG_HITBOXES
+            if (col) {
+                Uint32        color  = reg.all_of<PlayerTag>(entity)
+                                           ? SDL_MapRGB(fmt, nullptr, 0, 255, 0)
+                                           : SDL_MapRGB(fmt, nullptr, 255, 0, 0);
+                constexpr int thick = 1;
+                int hx = static_cast<int>(t.x), hy = static_cast<int>(t.y);
+                SDL_Rect top    = {hx,           hy,           col->w, thick};
+                SDL_Rect bottom = {hx,           hy + col->h,  col->w, thick};
+                SDL_Rect left_  = {hx,           hy,           thick,  col->h};
+                SDL_Rect right_ = {hx + col->w,  hy,           thick,  col->h};
+                SDL_FillSurfaceRect(screen, &top,    color);
+                SDL_FillSurfaceRect(screen, &bottom, color);
+                SDL_FillSurfaceRect(screen, &left_,  color);
+                SDL_FillSurfaceRect(screen, &right_, color);
+            }
+#endif
+            return;
+        }
+
+        // Slow path: needs flip and/or rotation — extract frame into temp surface
         SDL_Surface* frame    = SDL_CreateSurface(src.w, src.h, r.sheet->format);
         bool         ownFrame = true;
         SDL_SetSurfaceBlendMode(frame, SDL_BLENDMODE_BLEND);
@@ -53,11 +91,10 @@ inline void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
             }
             SDL_DestroySurface(frame);
             frame    = cache->frames[idx];
-            ownFrame = false; // borrowed from cache — don't free
+            ownFrame = false;
         }
 
         // Gravity rotation
-        auto* g = reg.try_get<GravityState>(entity);
         if (g && g->active) {
             SDL_Surface* rotated = nullptr;
             switch (g->direction) {
@@ -73,21 +110,17 @@ inline void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
             }
         }
 
-        // Wall-flush position adjustment after rotation
+        // Wall-flush position adjustment
         int renderX = static_cast<int>(t.x);
         int renderY = static_cast<int>(t.y);
         if (g && g->active) {
-            // After rotation, frame->w and frame->h reflect the rotated dimensions.
-            // Use col to get the unrotated logical size so flush offset is always correct.
-            auto* col = reg.try_get<Collider>(entity);
-            int   lw  = col ? col->w : PLAYER_SPRITE_WIDTH;  // logical (unrotated) width
-            int   lh  = col ? col->h : PLAYER_SPRITE_HEIGHT; // logical (unrotated) height
+            int lw = col ? col->w : PLAYER_SPRITE_WIDTH;
+            int lh = col ? col->h : PLAYER_SPRITE_HEIGHT;
             if (g->direction == GravityDir::RIGHT) renderX -= (frame->w - lw);
             if (g->direction == GravityDir::UP)    renderY -= (frame->h - lh);
         }
 
         // Invincibility flash
-        auto* inv = reg.try_get<InvincibilityTimer>(entity);
         if (inv && inv->isInvincible)
             if (static_cast<int>(inv->remaining * 10.0f) % 2 == 0)
                 SDL_SetSurfaceColorMod(frame, 255, 0, 0);
@@ -95,47 +128,36 @@ inline void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
         SDL_Rect dest = {renderX, renderY, frame->w, frame->h};
         SDL_BlitSurface(frame, nullptr, screen, &dest);
         SDL_SetSurfaceColorMod(frame, 255, 255, 255);
-        int frameW = frame->w; // save before potential free
-        int frameH = frame->h;
+        int frameW = frame->w;
         if (ownFrame) SDL_DestroySurface(frame);
 
 #ifdef DEBUG_HITBOXES
-        auto* col = reg.try_get<Collider>(entity);
         if (col) {
-            const SDL_PixelFormatDetails* fmt = SDL_GetPixelFormatDetails(screen->format);
-            Uint32 color = reg.all_of<PlayerTag>(entity)
-                               ? SDL_MapRGB(fmt, nullptr, 0, 255, 0)
-                               : SDL_MapRGB(fmt, nullptr, 255, 0, 0);
-            constexpr int thickness = 1;
+            Uint32        color = reg.all_of<PlayerTag>(entity)
+                                      ? SDL_MapRGB(fmt, nullptr, 0, 255, 0)
+                                      : SDL_MapRGB(fmt, nullptr, 255, 0, 0);
+            constexpr int thick = 1;
             int  hx = static_cast<int>(t.x);
             int  hy = static_cast<int>(t.y);
             int  cw = col->w;
             int  ch = col->h;
-            // In gravity mode, sprite is rotated so collider axes and render offset change
             if (g && g->active) {
                 switch (g->direction) {
-                    case GravityDir::DOWN:
-                        break;
-                    case GravityDir::UP:
-                        // Rotated 180 — same dimensions, no offset needed
-                        break;
+                    case GravityDir::DOWN: break;
+                    case GravityDir::UP:   break;
                     case GravityDir::LEFT:
-                        // Rotated 90 CW: frame is taller than wide
-                        // collider in world space: w=col->h, h=col->w
-                        cw = col->h;
-                        ch = col->w;
+                        cw = col->h; ch = col->w;
                         break;
                     case GravityDir::RIGHT:
                         hx -= (frameW - col->w);
-                        cw  = col->h;
-                        ch  = col->w;
+                        cw  = col->h; ch = col->w;
                         break;
                 }
             }
-            SDL_Rect top    = {hx,      hy,      cw,        thickness};
-            SDL_Rect bottom = {hx,      hy + ch, cw,        thickness};
-            SDL_Rect left_  = {hx,      hy,      thickness, ch};
-            SDL_Rect right_ = {hx + cw, hy,      thickness, ch};
+            SDL_Rect top    = {hx,      hy,      cw,    thick};
+            SDL_Rect bottom = {hx,      hy + ch, cw,    thick};
+            SDL_Rect left_  = {hx,      hy,      thick, ch};
+            SDL_Rect right_ = {hx + cw, hy,      thick, ch};
             SDL_FillSurfaceRect(screen, &top,    color);
             SDL_FillSurfaceRect(screen, &bottom, color);
             SDL_FillSurfaceRect(screen, &left_,  color);

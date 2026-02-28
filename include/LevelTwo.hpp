@@ -1,3 +1,4 @@
+
 #pragma once
 #include "Components.hpp"
 #include "Image.hpp"
@@ -13,7 +14,7 @@
 #include <memory>
 #include <print>
 
-class GameScene : public Scene {
+class LevelTwo : public Scene {
   public:
     void Load(Window& window) override {
         mWindow  = &window;
@@ -114,7 +115,13 @@ class GameScene : public Scene {
             BoundsSystem(reg, dt, mWindow->GetWidth(), mWindow->GetHeight());
             PlayerStateSystem(reg);
             AnimationSystem(reg, dt);
-            CollisionSystem(reg, dt, gameOver, coinCount, stompCount, mWindow->GetWidth(), mWindow->GetHeight());
+            CollisionSystem(reg,
+                            dt,
+                            gameOver,
+                            coinCount,
+                            stompCount,
+                            mWindow->GetWidth(),
+                            mWindow->GetHeight());
 
             // Check win condition
             if (totalCoins > 0 && coinCount >= totalCoins)
@@ -200,8 +207,10 @@ class GameScene : public Scene {
     void Spawn() {
         healthText  = std::make_unique<Text>("100", SDL_Color{255, 255, 255, 255}, 0, 0, 16);
         gravityText = std::make_unique<Text>("", SDL_Color{100, 200, 255, 255}, 0, 0, 20);
-        coinText   = std::make_unique<Text>("Gold Collected: 0",  SDL_Color{255, 215, 0, 255}, 0, 0, 16);
-        stompText  = std::make_unique<Text>("Enemies Stomped: 0", SDL_Color{255, 100, 100, 255}, 0, 0, 16);
+        coinText    = std::make_unique<Text>(
+            "Gold Collected: 0", SDL_Color{255, 215, 0, 255}, 0, 0, 16);
+        stompText = std::make_unique<Text>(
+            "Enemies Stomped: 0", SDL_Color{255, 100, 100, 255}, 0, 0, 16);
         coinSheet =
             std::make_unique<SpriteSheet>("game_assets/gold_coins/", "Gold_", 30, 40, 40);
         std::vector<SDL_Rect> coinFrames = coinSheet->GetAnimation("Gold_");

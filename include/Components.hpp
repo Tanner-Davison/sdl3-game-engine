@@ -10,12 +10,14 @@ inline constexpr int   PLAYER_SPRITE_WIDTH  = 72;
 inline constexpr int   PLAYER_SPRITE_HEIGHT = 97;
 inline constexpr int   SLIME_SPRITE_WIDTH   = 36;
 inline constexpr int   SLIME_SPRITE_HEIGHT  = 26;
-inline constexpr float GRAVITY_DURATION     = 15.0f;  // 15 seconds
-inline constexpr float GRAVITY_FORCE        = 600.0f; // pixels/sec^2
-inline constexpr float JUMP_FORCE           = 500.0f; // pixels/sec
+inline constexpr float GRAVITY_DURATION     = 5.0f;   // 5 seconds
+inline constexpr float GRAVITY_FORCE        = 800.0f; // pixels/sec^2
+inline constexpr float JUMP_FORCE           = 350.0f; // pixels/sec
 inline constexpr float MAX_FALL_SPEED       = 1000.0f;
 inline constexpr float PLAYER_SPEED         = 300.0f;
 inline constexpr int   GRAVITYSLUGSCOUNT    = 20;
+inline constexpr int   COIN_COUNT           = 8;
+inline constexpr int   COIN_SIZE            = 40;
 // Position and size in the world
 struct Transform {
     float x = 0.0f;
@@ -53,6 +55,12 @@ struct PlayerTag {};
 
 // Tag: marks an enemy entity - no data needed
 struct EnemyTag {};
+
+// Tag: marks a collectible coin entity
+struct CoinTag {};
+
+// Tag: marks a stomped/dead enemy — no longer harmful, acts as a platform
+struct DeadTag {};
 
 // Health
 struct Health {

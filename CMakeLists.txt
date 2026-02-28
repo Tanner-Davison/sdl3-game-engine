@@ -18,6 +18,8 @@ find_package(ZLIB REQUIRED)
 set(SOURCES
     src/main.cpp
     src/TitleScene.cpp
+    src/GameScene.cpp
+    src/LevelTwo.cpp
     src/Window.cpp
     src/Rectangle.cpp
     src/UI.cpp

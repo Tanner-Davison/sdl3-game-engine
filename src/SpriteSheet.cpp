@@ -2,7 +2,6 @@
 #include <SDL3_image/SDL_image.h>
 #include <algorithm>
 #include <fstream>
-#include <iostream>
 #include <print>
 #include <sstream>
 
@@ -11,8 +10,7 @@ SpriteSheet::SpriteSheet(const std::string& imageFile, const std::string& coordF
     // Load the sprite sheet image
     surface = IMG_Load(imageFile.c_str());
     if (!surface) {
-        std::cout << "Failed to load sprite sheet: " << imageFile << "\n"
-                  << SDL_GetError() << std::endl;
+        std::print("Failed to load sprite sheet: {}\n{}\n", imageFile, SDL_GetError());
         return;
     }
 
@@ -20,6 +18,61 @@ SpriteSheet::SpriteSheet(const std::string& imageFile, const std::string& coordF
 
     // Load the coordinate data
     LoadCoordinates(coordFile);
+}
+
+SpriteSheet::SpriteSheet(const std::string& directory, const std::string& prefix, int frameCount, int targetW, int targetH)
+    : surface(nullptr) {
+    std::string dir = directory;
+    if (!dir.empty() && dir.back() != '/')
+        dir += '/';
+
+    std::vector<SDL_Surface*> frameSurfaces;
+    int frameW = 0, frameH = 0;
+
+    for (int i = 1; i <= frameCount; i++) {
+        std::string  path = dir + prefix + std::to_string(i) + ".png";
+        SDL_Surface* s    = IMG_Load(path.c_str());
+        if (!s) {
+            std::print("Failed to load frame: {}\n{}\n", path, SDL_GetError());
+            for (auto* f : frameSurfaces) SDL_DestroySurface(f);
+            return;
+        }
+        // Scale down if target dimensions were provided
+        if (targetW > 0 && targetH > 0) {
+            SDL_Surface* scaled = SDL_CreateSurface(targetW, targetH, s->format);
+            SDL_SetSurfaceBlendMode(scaled, SDL_BLENDMODE_BLEND);
+            SDL_Rect src  = {0, 0, s->w, s->h};
+            SDL_Rect dest = {0, 0, targetW, targetH};
+            SDL_BlitSurfaceScaled(s, &src, scaled, &dest, SDL_SCALEMODE_LINEAR);
+            SDL_DestroySurface(s);
+            s = scaled;
+        }
+        if (i == 1) {
+            frameW = s->w;
+            frameH = s->h;
+        }
+        frameSurfaces.push_back(s);
+    }
+
+    if (frameSurfaces.empty()) return;
+
+    surface = SDL_CreateSurface(frameW * frameCount, frameH, frameSurfaces[0]->format);
+    if (!surface) {
+        std::print("Failed to create stitched surface: {}\n", SDL_GetError());
+        for (auto* f : frameSurfaces) SDL_DestroySurface(f);
+        return;
+    }
+    SDL_SetSurfaceBlendMode(surface, SDL_BLENDMODE_BLEND);
+
+    for (int i = 0; i < static_cast<int>(frameSurfaces.size()); i++) {
+        SDL_Rect dest = {i * frameW, 0, frameW, frameH};
+        SDL_SetSurfaceBlendMode(frameSurfaces[i], SDL_BLENDMODE_NONE);
+        SDL_BlitSurface(frameSurfaces[i], nullptr, surface, &dest);
+        frames[prefix + std::to_string(i + 1)] = {i * frameW, 0, frameW, frameH};
+        SDL_DestroySurface(frameSurfaces[i]);
+    }
+
+    std::print("Loaded {} frames from directory: {}\n", frameCount, dir);
 }
 
 SpriteSheet::~SpriteSheet() {
@@ -60,7 +113,7 @@ void SpriteSheet::LoadTextFormat(const std::string& coordFile) {
         }
     }
 
-    std::print("Loaded {} frames from the sprite sheet", frames.size());
+    std::print("Loaded {} frames from the sprite sheet\n", frames.size());
 }
 
 void SpriteSheet::LoadXMLFormat(const std::string& coordFile) {
@@ -140,7 +193,7 @@ SDL_Rect SpriteSheet::GetFrame(const std::string& name) const {
     if (it != frames.end()) {
         return it->second;
     }
-    std::cout << "Frame not found: " << name << std::endl;
+    std::print("Frame not found: {}\n", name);
     return {0, 0, 0, 0};
 }
 
@@ -156,10 +209,17 @@ std::vector<SDL_Rect> SpriteSheet::GetAnimation(const std::string& baseName) con
         }
     }
 
-    // Sort by name to get correct order
+    // Sort numerically by the number suffix to avoid "Gold_10" sorting before "Gold_2"
     std::sort(matchingFrames.begin(),
               matchingFrames.end(),
-              [](const auto& a, const auto& b) { return a.first < b.first; });
+              [&baseName](const auto& a, const auto& b) {
+                  auto numStr = [&](const std::string& s) {
+                      std::string n = s.substr(baseName.size());
+                      // strip any non-digit prefix left (e.g. walk01 vs walk1)
+                      return n.empty() ? 0 : std::stoi(n);
+                  };
+                  return numStr(a.first) < numStr(b.first);
+              });
 
     // Extract just the rects
     for (const auto& [name, rect] : matchingFrames) {

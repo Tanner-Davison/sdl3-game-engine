@@ -109,9 +109,9 @@ inline void MovementSystem(entt::registry& reg, float dt, int windowW) {
         }
     });
 
-    // Enemies bounce left and right within the window
-    auto enemyView = reg.view<EnemyTag, Transform, Velocity, Collider>();
-    enemyView.each([dt, windowW](Transform& t, Velocity& v, const Collider& c) {
+    // Enemies bounce left and right within the window, flipping to face movement direction
+    auto enemyView = reg.view<EnemyTag, Transform, Velocity, Collider, Renderable>(entt::exclude<DeadTag>);
+    enemyView.each([dt, windowW](Transform& t, Velocity& v, const Collider& c, Renderable& r) {
         t.x += v.dx * dt;
         if (t.x < 0.0f) {
             t.x  = 0.0f;
@@ -120,5 +120,7 @@ inline void MovementSystem(entt::registry& reg, float dt, int windowW) {
             t.x  = static_cast<float>(windowW - c.w);
             v.dx = -std::abs(v.dx);
         }
+        // Flip to face the direction of travel
+        r.flipH = v.dx > 0.0f;
     });
 }

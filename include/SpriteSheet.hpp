@@ -37,6 +37,26 @@ class SpriteSheet {
      */
     SpriteSheet(const std::string& imageFile, const std::string& coordFile);
 
+    /**
+     * @brief Builds a sprite sheet by stitching individually-numbered PNG files
+     * into a single surface at load time.
+     *
+     * Files are expected to follow the pattern: `prefix1.png`, `prefix2.png`, ...
+     * They are sorted numerically and laid out left-to-right into one surface.
+     * All frames must be the same dimensions.
+     *
+     * @param directory  Path to the folder containing the PNG files (trailing slash optional).
+     * @param prefix     Filename prefix shared by all frames (e.g. "Gold_").
+     * @param frameCount Total number of frames to load.
+     *
+     * @par Example
+     * @code
+     * SpriteSheet coins("game_assets/gold_coins/", "Gold_", 30);
+     * auto frames = coins.GetAnimation("Gold_");
+     * @endcode
+     */
+    SpriteSheet(const std::string& directory, const std::string& prefix, int frameCount, int targetW = 0, int targetH = 0);
+
     /// Frees the loaded SDL_Surface.
     ~SpriteSheet();
 
