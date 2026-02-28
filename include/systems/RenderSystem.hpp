@@ -103,8 +103,8 @@ inline void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
             switch (g->direction) {
                 case GravityDir::DOWN:  break;
                 case GravityDir::UP:    rotated = RotateSurface180(frame);   break;
-                case GravityDir::RIGHT: rotated = RotateSurface90CCW(frame); break;
-                case GravityDir::LEFT:  rotated = RotateSurface90CW(frame);  break;
+                case GravityDir::RIGHT: rotated = RotateSurface90CCW(frame); break; // bottom->right edge
+                case GravityDir::LEFT:  rotated = RotateSurface90CW(frame);  break; // bottom->left edge
             }
             if (rotated) {
                 if (ownFrame) SDL_DestroySurface(frame);
@@ -144,27 +144,41 @@ inline void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
                 // col->w=32 (narrow), col->h=60 (tall/deep), frame=80x80 after rotation.
                 // Centering offset on perpendicular axis = (frame_perp - col_perp) / 2
                 // which equals roff->x (=-24) since roff was tuned for exactly this.
+                // roff->{x,y} for DOWN gravity: x=-24 centers 80px frame over 32px collider,
+                // y=-10 accounts for transparent head-padding at the top of the upright frame.
+                // For other walls the axes rotate:
+                //   UP    : x still centers horizontally; y=-10 is now the floor-flush (feet padding)
+                //   LEFT  : roff->y=-10 becomes the X floor-flush (feet padding from left edge)
+                //            roff->x=-24 centers vertically
+                //   RIGHT : roff->y=-10 becomes the X floor-flush from the right edge
+                //            roff->x=-24 centers vertically
+                int cx = roff ? roff->x : -(frame->w - col->w) / 2; // centering offset
+                int fy = roff ? roff->y : 0;                          // feet padding in upright frame
                 switch (g->direction) {
                     case GravityDir::DOWN:
-                        // Upright: flush top-left naturally, apply full roff for centering
+                        // Upright — apply full roff directly
                         if (roff) { renderX += roff->x; renderY += roff->y; }
                         break;
                     case GravityDir::UP:
-                        // 180° rotation: floor=top edge (t.y), sprite bottom=t.y+col->h
-                        renderY -= (frame->h - col->h); // flush floor edge
-                        // Center horizontally over the narrow collider (same as roff->x)
-                        renderX += (roff ? roff->x : -(frame->w - col->w) / 2);
+                        // 180°: feet at top of frame. fy=-10 means there are 10px of
+                        // transparent head-padding now at the TOP of the rotated frame
+                        // (since 180° puts the original bottom at the top).
+                        // Pull sprite UP by |fy| so the actual feet pixels touch t.y=0.
+                        renderX += cx;      // same horizontal centering as DOWN
+                        renderY += fy;      // fy=-10 => renderY -= 10, feet flush to ceiling
                         break;
                     case GravityDir::LEFT:
-                        // 90CW: floor=left edge (t.x), sprite extends right naturally
-                        // Center vertically over the narrow collider
-                        renderY += (roff ? roff->x : -(frame->h - col->w) / 2);
+                        // 90CW: feet at left of frame. Feet padding (fy=-10) now on X axis.
+                        // Subtract fy so the feet pixel aligns with t.x (wall at x=0).
+                        renderX += fy;      // fy=-10 => renderX -= 10, pulls feet to wall
+                        renderY += cx;      // center vertically (-24)
                         break;
                     case GravityDir::RIGHT:
-                        // 90CCW: floor=right edge (t.x+col->h), flush left
-                        renderX = static_cast<int>(t.x) + col->h - frame->w;
-                        // Center vertically over the narrow collider
-                        renderY += (roff ? roff->x : -(frame->h - col->w) / 2);
+                        // 90CCW: feet at right of frame.
+                        // Base flush: renderX = t.x + col->h - frame->w
+                        // Feet padding (fy=-10) on X axis: subtract to pull feet right.
+                        renderX = static_cast<int>(t.x) + col->h - frame->w - fy;
+                        renderY += cx;      // center vertically (-24)
                         break;
                 }
             }

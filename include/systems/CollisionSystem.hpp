@@ -167,7 +167,7 @@ inline void CollisionSystem(entt::registry& reg, float dt, bool& gameOver, int& 
                 case GravityDir::DOWN:  onRealWall = (pt.y + pc.h >= windowH); break;
                 case GravityDir::UP:    onRealWall = (pt.y <= 0.0f);            break;
                 case GravityDir::LEFT:  onRealWall = (pt.x <= 0.0f);            break;
-                case GravityDir::RIGHT: onRealWall = (pt.x + pc.w >= windowW);  break;
+                case GravityDir::RIGHT: onRealWall = (pt.x + pc.h >= windowW);  break;
             }
             if (!onRealWall) {
                 g.isGrounded = false;

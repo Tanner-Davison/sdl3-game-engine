@@ -28,10 +28,10 @@ inline void InputSystem(entt::registry& reg, SDL_Event& e) {
                 case SDLK_W:
                     if (!g.isCrouching) {
                         if (g.direction == GravityDir::LEFT) {
-                            // 90CW rotation: flipH=true makes sprite face up the wall
+                            // 90CW: flipH=true (face left) -> face up the left wall
                             r.flipH = true;
                         } else if (g.direction == GravityDir::RIGHT) {
-                            // 90CCW rotation: flipH=false makes sprite face up the wall
+                            // 90CCW: flipH=false (face right) -> face up the right wall
                             r.flipH = false;
                         }
                     }
@@ -39,10 +39,10 @@ inline void InputSystem(entt::registry& reg, SDL_Event& e) {
                 case SDLK_S:
                     if (!g.isCrouching) {
                         if (g.direction == GravityDir::LEFT) {
-                            // 90CW rotation: flipH=false makes sprite face down the wall
+                            // 90CW: flipH=false (face right) -> face down the left wall
                             r.flipH = false;
                         } else if (g.direction == GravityDir::RIGHT) {
-                            // 90CCW rotation: flipH=true makes sprite face down the wall
+                            // 90CCW: flipH=true (face left) -> face down the right wall
                             r.flipH = true;
                         }
                     }

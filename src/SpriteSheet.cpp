@@ -54,7 +54,7 @@ SpriteSheet::SpriteSheet(const std::string& directory, const std::string& prefix
             SDL_DestroySurface(s);
             s = scaled;
         }
-        if (i == 1) {
+        if (i == startIdx) {
             frameW = s->w;
             frameH = s->h;
         }
