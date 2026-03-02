@@ -17,8 +17,10 @@ inline void MovementSystem(entt::registry& reg, float dt, int windowW) {
             if (!moving) {
                 v.dx -= v.dx * friction * dt;
                 v.dy -= v.dy * friction * dt;
-                if (std::abs(v.dx) < 0.5f) v.dx = 0.0f;
-                if (std::abs(v.dy) < 0.5f) v.dy = 0.0f;
+                if (std::abs(v.dx) < 0.5f)
+                    v.dx = 0.0f;
+                if (std::abs(v.dy) < 0.5f)
+                    v.dy = 0.0f;
             }
             t.x += v.dx * dt;
             t.y += v.dy * dt;
@@ -28,8 +30,10 @@ inline void MovementSystem(entt::registry& reg, float dt, int windowW) {
         if (g.isCrouching) {
             v.dx -= v.dx * friction * dt;
             v.dy -= v.dy * friction * dt;
-            if (std::abs(v.dx) < 0.5f) v.dx = 0.0f;
-            if (std::abs(v.dy) < 0.5f) v.dy = 0.0f;
+            if (std::abs(v.dx) < 0.5f)
+                v.dx = 0.0f;
+            if (std::abs(v.dy) < 0.5f)
+                v.dy = 0.0f;
             t.x += v.dx * dt;
             t.y += v.dy * dt;
         } else {
@@ -38,22 +42,28 @@ inline void MovementSystem(entt::registry& reg, float dt, int windowW) {
             switch (g.direction) {
                 case GravityDir::DOWN:
                 case GravityDir::UP: {
-                    if (keys[SDL_SCANCODE_A]) v.dx = -v.speed;
-                    if (keys[SDL_SCANCODE_D]) v.dx =  v.speed;
+                    if (keys[SDL_SCANCODE_A])
+                        v.dx = -v.speed;
+                    if (keys[SDL_SCANCODE_D])
+                        v.dx = v.speed;
                     if (!keys[SDL_SCANCODE_A] && !keys[SDL_SCANCODE_D]) {
                         v.dx -= v.dx * friction * dt;
-                        if (std::abs(v.dx) < 0.5f) v.dx = 0.0f;
+                        if (std::abs(v.dx) < 0.5f)
+                            v.dx = 0.0f;
                     }
                     t.x += v.dx * dt;
                     break;
                 }
                 case GravityDir::LEFT:
                 case GravityDir::RIGHT: {
-                    if (keys[SDL_SCANCODE_W]) v.dy = -v.speed;
-                    if (keys[SDL_SCANCODE_S]) v.dy =  v.speed;
+                    if (keys[SDL_SCANCODE_W])
+                        v.dy = -v.speed;
+                    if (keys[SDL_SCANCODE_S])
+                        v.dy = v.speed;
                     if (!keys[SDL_SCANCODE_W] && !keys[SDL_SCANCODE_S]) {
                         v.dy -= v.dy * friction * dt;
-                        if (std::abs(v.dy) < 0.5f) v.dy = 0.0f;
+                        if (std::abs(v.dy) < 0.5f)
+                            v.dy = 0.0f;
                     }
                     t.y += v.dy * dt;
                     break;
@@ -70,17 +80,26 @@ inline void MovementSystem(entt::registry& reg, float dt, int windowW) {
         }
 
         switch (g.direction) {
-            case GravityDir::DOWN:  t.y += g.velocity * dt; break;
-            case GravityDir::UP:    t.y -= g.velocity * dt; break;
-            case GravityDir::LEFT:  t.x -= g.velocity * dt; break;
-            case GravityDir::RIGHT: t.x += g.velocity * dt; break;
+            case GravityDir::DOWN:
+                t.y += g.velocity * dt;
+                break;
+            case GravityDir::UP:
+                t.y -= g.velocity * dt;
+                break;
+            case GravityDir::LEFT:
+                t.x -= g.velocity * dt;
+                break;
+            case GravityDir::RIGHT:
+                t.x += g.velocity * dt;
+                break;
         }
 
         g.timer += dt;
     });
 
     auto tileView  = reg.view<TileTag, Transform, Collider>();
-    auto enemyView = reg.view<EnemyTag, Transform, Velocity, Collider, Renderable>(entt::exclude<DeadTag>);
+    auto enemyView = reg.view<EnemyTag, Transform, Velocity, Collider, Renderable>(
+        entt::exclude<DeadTag>);
     enemyView.each([&](Transform& t, Velocity& v, const Collider& c, Renderable& r) {
         t.x += v.dx * dt;
 
@@ -93,11 +112,13 @@ inline void MovementSystem(entt::registry& reg, float dt, int windowW) {
         }
 
         tileView.each([&](const Transform& tt, const Collider& tc) {
-            if (t.y >= tt.y + tc.h || t.y + c.h <= tt.y) return;
+            if (t.y >= tt.y + tc.h || t.y + c.h <= tt.y)
+                return;
 
             float oLeft  = (t.x + c.w) - tt.x;
             float oRight = (tt.x + tc.w) - t.x;
-            if (oLeft <= 0.0f || oRight <= 0.0f) return;
+            if (oLeft <= 0.0f || oRight <= 0.0f)
+                return;
 
             if (oLeft < oRight) {
                 t.x  = tt.x - c.w;
