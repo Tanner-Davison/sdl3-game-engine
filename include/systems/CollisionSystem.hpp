@@ -1,10 +1,22 @@
 #pragma once
 #include <Components.hpp>
+#include <GameEvents.hpp>
 #include <cmath>
 #include <entt/entt.hpp>
 #include <vector>
 
-inline void CollisionSystem(entt::registry& reg, float dt, bool& gameOver, int& coinCount, int& stompCount, int windowW, int windowH) {
+// ─────────────────────────────────────────────────────────────────────────────
+// CollisionSystem
+//
+// Resolves all collisions for one frame and returns a CollisionResult.
+// The Scene is responsible for accumulating the result into its own state
+// (gameOver, coinCount, stompCount).  This system no longer holds raw
+// references into the Scene, making it self-contained and testable.
+// ─────────────────────────────────────────────────────────────────────────────
+inline CollisionResult CollisionSystem(entt::registry& reg, float dt, int windowW, int windowH) {
+    CollisionResult result;
+
+    // ── Tick invincibility timers ─────────────────────────────────────────────
     auto timerView = reg.view<InvincibilityTimer>();
     timerView.each([dt](InvincibilityTimer& inv) {
         if (inv.isInvincible) {
@@ -26,11 +38,13 @@ inline void CollisionSystem(entt::registry& reg, float dt, bool& gameOver, int& 
     toKill.reserve(4);
     toDestroy.reserve(8);
 
-    playerView.each([&](GravityState& g, Transform& pt, const Collider& pc, Health& health, InvincibilityTimer& inv) {
-        bool sidewall = g.direction == GravityDir::LEFT || g.direction == GravityDir::RIGHT;
-        float pw = sidewall ? (float)pc.h : (float)pc.w;
-        float ph = sidewall ? (float)pc.w : (float)pc.h;
+    playerView.each([&](GravityState& g, Transform& pt, const Collider& pc,
+                        Health& health, InvincibilityTimer& inv) {
+        bool  sidewall = g.direction == GravityDir::LEFT || g.direction == GravityDir::RIGHT;
+        float pw       = sidewall ? (float)pc.h : (float)pc.w;
+        float ph       = sidewall ? (float)pc.w : (float)pc.h;
 
+        // ── AABB helpers ──────────────────────────────────────────────────────
         auto aabb = [&](const Transform& et, const Collider& ec) -> bool {
             return pt.x < et.x + ec.w && pt.x + pw > et.x &&
                    pt.y < et.y + ec.h && pt.y + ph > et.y;
@@ -47,17 +61,18 @@ inline void CollisionSystem(entt::registry& reg, float dt, bool& gameOver, int& 
             return false;
         };
 
+        // ── Live enemy collisions ─────────────────────────────────────────────
         liveEnemyView.each([&](entt::entity enemy, const Transform& et, const Collider& ec) {
             if (isStomp(et, ec)) {
                 toKill.push_back(enemy);
-                stompCount++;
+                result.enemiesStomped++;
                 g.velocity   = -JUMP_FORCE * 0.5f;
                 g.isGrounded = false;
             } else if (!inv.isInvincible && aabb(et, ec)) {
                 health.current -= PLAYER_HIT_DAMAGE;
                 if (health.current <= 0.0f) {
-                    health.current = 0.0f;
-                    gameOver = true;
+                    health.current   = 0.0f;
+                    result.playerDied = true;
                 }
                 inv.isInvincible  = true;
                 inv.remaining     = inv.duration;
@@ -68,45 +83,45 @@ inline void CollisionSystem(entt::registry& reg, float dt, bool& gameOver, int& 
             }
         });
 
+        // ── Dead enemy platforms ──────────────────────────────────────────────
         bool onDeadEnemy = false;
         deadEnemyView.each([&](const Transform& et, const Collider& ec) {
             if (g.velocity < 0.0f) return;
-            // pw/ph are the world-space extents of the player collider,
-            // already swapped for sidewall gravity above.
-            bool horizOverlap = pt.x < et.x + ec.w && pt.x + pw > et.x;
-            bool vertOverlap  = pt.y < et.y + ec.h && pt.y + ph > et.y;
             switch (g.direction) {
                 case GravityDir::DOWN: {
-                    float bottom = pt.y + ph;
-                    if (horizOverlap && bottom >= et.y && bottom <= et.y + ec.h) {
-                        pt.y = et.y - ph;
-                        g.velocity = 0.0f;
+                    float bottom = pt.y + pc.h;
+                    if (pt.x < et.x + ec.w && pt.x + pc.w > et.x &&
+                        bottom >= et.y && bottom <= et.y + ec.h) {
+                        pt.y = et.y - pc.h;
+                        g.velocity   = 0.0f;
                         g.isGrounded = onDeadEnemy = true;
                     }
                     break;
                 }
                 case GravityDir::UP: {
-                    if (horizOverlap && pt.y <= et.y + ec.h && pt.y >= et.y) {
+                    if (pt.x < et.x + ec.w && pt.x + pc.w > et.x &&
+                        pt.y <= et.y + ec.h && pt.y >= et.y) {
                         pt.y = et.y + ec.h;
-                        g.velocity = 0.0f;
+                        g.velocity   = 0.0f;
                         g.isGrounded = onDeadEnemy = true;
                     }
                     break;
                 }
                 case GravityDir::LEFT: {
-                    float left = pt.x;
-                    if (vertOverlap && left <= et.x + ec.w && left >= et.x) {
+                    if (pt.y < et.y + ec.h && pt.y + pc.h > et.y &&
+                        pt.x <= et.x + ec.w && pt.x >= et.x) {
                         pt.x = et.x + ec.w;
-                        g.velocity = 0.0f;
+                        g.velocity   = 0.0f;
                         g.isGrounded = onDeadEnemy = true;
                     }
                     break;
                 }
                 case GravityDir::RIGHT: {
-                    float right = pt.x + pw;
-                    if (vertOverlap && right >= et.x && right <= et.x + ec.w) {
-                        pt.x = et.x - pw;
-                        g.velocity = 0.0f;
+                    float right = pt.x + pc.h;
+                    if (pt.y < et.y + ec.h && pt.y + pc.w > et.y &&
+                        right >= et.x && right <= et.x + ec.w) {
+                        pt.x = et.x - pc.h;
+                        g.velocity   = 0.0f;
                         g.isGrounded = onDeadEnemy = true;
                     }
                     break;
@@ -114,22 +129,23 @@ inline void CollisionSystem(entt::registry& reg, float dt, bool& gameOver, int& 
             }
         });
 
+        // If player was grounded last frame but is no longer on a dead enemy or a
+        // window wall, clear the grounded flag so gravity can resume.
         if (!onDeadEnemy && g.isGrounded) {
-            constexpr float TOL = 1.0f;
             bool onWindow = false;
             switch (g.direction) {
-                case GravityDir::DOWN:  onWindow = pt.y + ph >= windowH - TOL; break;
-                case GravityDir::UP:    onWindow = pt.y <= TOL;                break;
-                case GravityDir::LEFT:  onWindow = pt.x <= TOL;                break;
-                case GravityDir::RIGHT: onWindow = pt.x + pw >= windowW - TOL; break;
+                case GravityDir::DOWN:  onWindow = pt.y + pc.h >= windowH; break;
+                case GravityDir::UP:    onWindow = pt.y <= 0.0f;            break;
+                case GravityDir::LEFT:  onWindow = pt.x <= 0.0f;            break;
+                case GravityDir::RIGHT: onWindow = pt.x + pc.h >= windowW;  break;
             }
             if (!onWindow) g.isGrounded = false;
         }
 
+        // ── Tile collisions — two passes ──────────────────────────────────────
         auto tileView = reg.view<TileTag, Transform, Collider>();
 
-        // Pass 1 — gravity axis. Snap feet to floors, head to ceilings.
-        // Must run before pass 2 so horizontal contacts resolve at the correct height.
+        // Pass 1 — gravity axis: snap feet/head to floors/ceilings.
         tileView.each([&](const Transform& tt, const Collider& tc) {
             if (pt.x + pw <= tt.x || pt.x >= tt.x + tc.w) return;
             if (pt.y + ph <= tt.y || pt.y >= tt.y + tc.h) return;
@@ -183,8 +199,7 @@ inline void CollisionSystem(entt::registry& reg, float dt, bool& gameOver, int& 
             }
         });
 
-        // Pass 2 — lateral axis. Player is at the right floor height now,
-        // so any remaining overlap is a wall and gets pushed out horizontally.
+        // Pass 2 — lateral axis: push out walls now that vertical position is settled.
         tileView.each([&](const Transform& tt, const Collider& tc) {
             if (pt.x + pw <= tt.x || pt.x >= tt.x + tc.w) return;
             if (pt.y + ph <= tt.y || pt.y >= tt.y + tc.h) return;
@@ -207,16 +222,18 @@ inline void CollisionSystem(entt::registry& reg, float dt, bool& gameOver, int& 
             }
         });
 
+        // ── Coin collection ───────────────────────────────────────────────────
         if (g.active) {
             coinView.each([&](entt::entity coin, const Transform& ct, const Collider& cc) {
                 if (aabb(ct, cc)) {
                     toDestroy.push_back(coin);
-                    coinCount++;
+                    result.coinsCollected++;
                 }
             });
         }
     });
 
+    // ── Commit deferred mutations ─────────────────────────────────────────────
     for (auto e : toKill) {
         if (reg.all_of<Velocity>(e)) {
             auto& v = reg.get<Velocity>(e);
@@ -240,4 +257,6 @@ inline void CollisionSystem(entt::registry& reg, float dt, bool& gameOver, int& 
 
     for (auto e : toDestroy)
         reg.destroy(e);
+
+    return result;
 }

@@ -34,7 +34,10 @@ set(SOURCES
 add_executable(${PROJECT_NAME} ${SOURCES})
 
 target_include_directories(${PROJECT_NAME} PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include          # root: Components, GameConfig, GameEvents, ...
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/engine   # engine/Scene.hpp, engine/SceneManager.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/game     # game/GameConfig.hpp, game/GameEvents.hpp
+    # systems/ is reachable as <systems/Foo.hpp> via the include/ root above
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 

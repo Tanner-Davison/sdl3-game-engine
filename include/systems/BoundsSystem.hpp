@@ -2,10 +2,14 @@
 #include <Components.hpp>
 #include <entt/entt.hpp>
 
+// PLAYER_STAND_WIDTH / PLAYER_STAND_HEIGHT come from GameConfig via Components.hpp.
+
 inline void BoundsSystem(entt::registry& reg, float dt, int windowW, int windowH) {
     auto view = reg.view<Transform, Collider, GravityState, Velocity, AnimationState, PlayerTag>();
     view.each(
-        [dt, windowW, windowH](Transform& t, Collider& c, GravityState& g, Velocity& v, AnimationState& anim) {
+        [dt, windowW, windowH](Transform& t, Collider& c, GravityState& g,
+                                Velocity& v, AnimationState& anim) {
+            // ── Punishment timer tick ─────────────────────────────────────────
             if (g.punishmentTimer > 0.0f) {
                 g.punishmentTimer -= dt;
                 if (g.punishmentTimer <= 0.0f) {
@@ -14,6 +18,7 @@ inline void BoundsSystem(entt::registry& reg, float dt, int windowW, int windowH
                 }
             }
 
+            // Activate gravity toward a wall, resetting motion and crouch state.
             auto activate = [&](GravityDir dir) {
                 if (g.punishmentTimer > 0.0f) return;
                 if (g.active && g.isGrounded && g.direction == dir) return;
@@ -36,28 +41,27 @@ inline void BoundsSystem(entt::registry& reg, float dt, int windowW, int windowH
                 v.dy         = 0.0f;
             };
 
-            // LEFT wall
+            // ── Wall-touch detection → gravity switch ─────────────────────────
             if (t.x < 0.0f) {
                 t.x = 0.0f;
                 activate(GravityDir::LEFT);
             }
-            // RIGHT wall
             {
-                bool  sw        = g.active && (g.direction == GravityDir::LEFT || g.direction == GravityDir::RIGHT);
+                bool  sw        = g.active && (g.direction == GravityDir::LEFT ||
+                                               g.direction == GravityDir::RIGHT);
                 float rightEdge = t.x + (sw ? c.h : c.w);
                 if (rightEdge > windowW) {
                     t.x = static_cast<float>(windowW - (sw ? c.h : c.w));
                     activate(GravityDir::RIGHT);
                 }
             }
-            // TOP wall
             if (t.y < 0.0f) {
                 t.y = 0.0f;
                 activate(GravityDir::UP);
             }
-            // BOTTOM wall
             {
-                bool  sw         = g.active && (g.direction == GravityDir::LEFT || g.direction == GravityDir::RIGHT);
+                bool  sw         = g.active && (g.direction == GravityDir::LEFT ||
+                                                g.direction == GravityDir::RIGHT);
                 float bottomEdge = t.y + (sw ? c.w : c.h);
                 if (bottomEdge > windowH) {
                     t.y = static_cast<float>(windowH - (sw ? c.w : c.h));
@@ -65,20 +69,20 @@ inline void BoundsSystem(entt::registry& reg, float dt, int windowW, int windowH
                 }
             }
 
+            // ── Ground-clamp per gravity direction ────────────────────────────
             if (g.active) {
                 switch (g.direction) {
                     case GravityDir::DOWN:
                         if (t.y + c.h >= windowH) {
-                            t.y          = static_cast<float>(windowH - c.h);
+                            t.y        = static_cast<float>(windowH - c.h);
                             g.velocity   = 0.0f;
                             g.isGrounded = true;
                         }
-                        // Hard clamp — never let player sink below floor regardless of source
                         if (t.y + c.h > windowH) t.y = static_cast<float>(windowH - c.h);
                         break;
                     case GravityDir::UP:
                         if (t.y <= 0.0f) {
-                            t.y          = 0.0f;
+                            t.y        = 0.0f;
                             g.velocity   = 0.0f;
                             g.isGrounded = true;
                         }
@@ -86,7 +90,7 @@ inline void BoundsSystem(entt::registry& reg, float dt, int windowW, int windowH
                         break;
                     case GravityDir::LEFT:
                         if (t.x <= 0.0f) {
-                            t.x          = 0.0f;
+                            t.x        = 0.0f;
                             g.velocity   = 0.0f;
                             g.isGrounded = true;
                         }
@@ -94,7 +98,7 @@ inline void BoundsSystem(entt::registry& reg, float dt, int windowW, int windowH
                         break;
                     case GravityDir::RIGHT:
                         if (t.x + c.h >= windowW) {
-                            t.x          = static_cast<float>(windowW - c.h);
+                            t.x        = static_cast<float>(windowW - c.h);
                             g.velocity   = 0.0f;
                             g.isGrounded = true;
                         }

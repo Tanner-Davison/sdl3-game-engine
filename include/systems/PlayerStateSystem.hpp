@@ -3,8 +3,8 @@
 #include <SDL3/SDL.h>
 #include <entt/entt.hpp>
 
-inline constexpr int PLAYER_DUCK_ROFF_X  = 5;
-inline constexpr int PLAYER_STAND_ROFF_X = -24;
+// PLAYER_DUCK_ROFF_X / PLAYER_STAND_ROFF_X / collider dims come from GameConfig
+// via Components.hpp → GameConfig.hpp include chain.
 
 inline void PlayerStateSystem(entt::registry& reg) {
     auto view = reg.view<PlayerTag, Velocity, GravityState, Transform, Collider,
@@ -16,7 +16,7 @@ inline void PlayerStateSystem(entt::registry& reg) {
                      Renderable& r, AnimationState& anim,
                      const AnimationSet& set, const InvincibilityTimer& inv) {
 
-        // ── Determine target animation ────────────────────────────────────
+        // ── Determine target animation ────────────────────────────────────────
         const std::vector<SDL_Rect>* frames = nullptr;
         float       fps     = 12.0f;
         bool        looping = true;
@@ -27,16 +27,16 @@ inline void PlayerStateSystem(entt::registry& reg) {
         if (inv.isInvincible) {
             frames = &set.hurt; fps = 8.0f; looping = false; id = AnimationID::HURT;
         } else if (g.active && !g.isGrounded) {
-            frames = &set.jump; fps = 10.0f;                 id = AnimationID::JUMP;
+            frames = &set.jump; fps = 10.0f;                  id = AnimationID::JUMP;
         } else if (g.isCrouching) {
-            frames = &set.duck; fps = 8.0f;                  id = AnimationID::DUCK;
+            frames = &set.duck; fps = 8.0f;                   id = AnimationID::DUCK;
         } else if (moving) {
-            frames = &set.walk;                               id = AnimationID::WALK;
+            frames = &set.walk;                                id = AnimationID::WALK;
         } else {
-            frames = &set.idle; fps = 8.0f;                  id = AnimationID::IDLE;
+            frames = &set.idle; fps = 8.0f;                   id = AnimationID::IDLE;
         }
 
-        // ── Collider enforcement — runs every frame, before any early-out ─
+        // ── Collider enforcement — runs every frame, before any early-out ─────
         // Must be here so wall transitions (which reset col to standing dims)
         // get corrected even when the animation ID hasn't changed.
         bool ducking = (id == AnimationID::DUCK);
@@ -66,7 +66,7 @@ inline void PlayerStateSystem(entt::registry& reg) {
             }
         }
 
-        // ── Animation swap — only when animation actually changes ─────────
+        // ── Animation swap — only when animation actually changes ─────────────
         if (!frames || anim.currentAnim == id) return;
 
         SDL_Surface* sheet = nullptr;
