@@ -22,7 +22,7 @@ class TitleScene : public Scene {
         mWindowW = window.GetWidth();
         mWindowH = window.GetHeight();
 
-        background = std::make_unique<Image>("game_assets/base_pack/bg_castle.png",
+        background = std::make_unique<Image>("game_assets/backgrounds/bg_castle.png",
                                              nullptr, FitMode::PRESCALED);
 
         SDL_Rect windowRect = {0, 0, mWindowW, mWindowH};

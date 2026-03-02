@@ -21,7 +21,7 @@ struct TileSpawn {
 
 struct Level {
     std::string             name       = "Untitled";
-    std::string             background = "game_assets/base_pack/deepspace_scene.png";
+    std::string             background = "game_assets/backgrounds/deepspace_scene.png";
     PlayerSpawn             player     = {0.0f, 0.0f};
     std::vector<CoinSpawn>  coins;
     std::vector<EnemySpawn> enemies;

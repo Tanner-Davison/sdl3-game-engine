@@ -51,7 +51,7 @@ inline bool LoadLevel(const std::string& path, Level& out) {
     }
 
     out.name       = j.value("name", "Untitled");
-    out.background = j.value("background", "game_assets/base_pack/deepspace_scene.png");
+    out.background = j.value("background", "game_assets/backgrounds/deepspace_scene.png");
 
     if (j.contains("player")) {
         out.player.x = j["player"].value("x", 0.0f);

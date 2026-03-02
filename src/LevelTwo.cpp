@@ -25,7 +25,7 @@ void LevelTwo::Load(Window& window) {
     enemyWalkFrames = enemySheet->GetAnimation("slimeWalk");
 
     background   = std::make_unique<Image>(
-        "game_assets/base_pack/deepspace_scene.png", nullptr, FitMode::PRESCALED);
+        "game_assets/backgrounds/deepspace_scene.png", nullptr, FitMode::PRESCALED);
     locationText = std::make_unique<Text>("You are in space!!", 20, 20);
     actionText   = std::make_unique<Text>(
         "Level 2: Collect ALL the coins!", SDL_Color{255, 255, 255, 0}, 20, 80, 20);
