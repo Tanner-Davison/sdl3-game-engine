@@ -1,11 +1,12 @@
 {
-    "background": "game_assets/backgrounds/deepspace_scene.png",
-    "coins": [],
-    "enemies": [],
-    "name": "level1",
-    "player": {
-        "x": 614.0,
-        "y": 857.0
-    },
-    "tiles": []
+  "background": "game_assets/backgrounds/deepspace_scene.png",
+  "coins": [],
+  "enemies": [],
+  "name": "level1",
+  "player": {
+    "x": 614.0,
+    "y": 857.0
+  },
+  "tiles": []
 }
+
