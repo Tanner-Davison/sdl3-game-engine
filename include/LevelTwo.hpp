@@ -112,8 +112,8 @@ class LevelTwo : public Scene {
         if (!gameOver) {
             MovementSystem(reg, dt, mWindow->GetWidth());
             CenterPullSystem(reg, dt, mWindow->GetWidth(), mWindow->GetHeight());
-            BoundsSystem(reg, dt, mWindow->GetWidth(), mWindow->GetHeight());
             PlayerStateSystem(reg);
+            BoundsSystem(reg, dt, mWindow->GetWidth(), mWindow->GetHeight());
             AnimationSystem(reg, dt);
             CollisionSystem(reg,
                             dt,

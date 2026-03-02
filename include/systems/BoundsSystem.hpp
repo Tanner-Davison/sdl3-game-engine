@@ -3,22 +3,30 @@
 #include <entt/entt.hpp>
 
 inline void BoundsSystem(entt::registry& reg, float dt, int windowW, int windowH) {
-    auto view = reg.view<Transform, Collider, GravityState, Velocity, PlayerTag>();
+    auto view = reg.view<Transform, Collider, GravityState, Velocity, AnimationState, PlayerTag>();
     view.each(
-        [dt, windowW, windowH](Transform& t, const Collider& c, GravityState& g, Velocity& v) {
-            // Tick punishment — block wall activation until it expires
+        [dt, windowW, windowH](Transform& t, Collider& c, GravityState& g, Velocity& v, AnimationState& anim) {
             if (g.punishmentTimer > 0.0f) {
                 g.punishmentTimer -= dt;
                 if (g.punishmentTimer <= 0.0f) {
                     g.punishmentTimer = 0.0f;
-                    g.active          = true; // re-enable gravity after punishment
+                    g.active          = true;
                 }
             }
 
             auto activate = [&](GravityDir dir) {
-                if (g.punishmentTimer > 0.0f) return; // still being punished
-                if (g.active && g.isGrounded && g.direction == dir)
-                    return;
+                if (g.punishmentTimer > 0.0f) return;
+                if (g.active && g.isGrounded && g.direction == dir) return;
+
+                // Reset to standing collider and clear crouch state on wall transition.
+                // Also reset anim.currentAnim so PlayerStateSystem's wasDucking/nowDucking
+                // comparison starts clean — prevents stale duck dimensions from the old
+                // wall feeding into the resize calculation on the new wall.
+                g.isCrouching    = false;
+                c.w              = PLAYER_STAND_WIDTH;
+                c.h              = PLAYER_STAND_HEIGHT;
+                anim.currentAnim = AnimationID::NONE;
+
                 g.timer      = 0.0f;
                 g.active     = true;
                 g.isGrounded = false;
@@ -28,44 +36,28 @@ inline void BoundsSystem(entt::registry& reg, float dt, int windowW, int windowH
                 v.dy         = 0.0f;
             };
 
-            // Each wall uses its own correct collider dimension so that direction
-            // changes mid-frame (via activate()) never cause stale sidewall math.
-            //
-            // When gravity is LEFT or RIGHT the collider is rotated in world-space:
-            //   X depth  = c.h  (the tall axis presses into the wall)
-            //   Y height = c.w  (the narrow axis slides along the wall)
-            // When gravity is UP or DOWN the collider is upright:
-            //   X width  = c.w
-            //   Y height = c.h
-            //
-            // LEFT wall  — player's left edge (t.x) must stay >= 0
+            // LEFT wall
             if (t.x < 0.0f) {
                 t.x = 0.0f;
                 activate(GravityDir::LEFT);
             }
-            // RIGHT wall — player's right edge depends on current gravity direction
-            //   LEFT/RIGHT gravity: right edge = t.x + c.h
-            //   UP/DOWN gravity:    right edge = t.x + c.w
+            // RIGHT wall
             {
-                bool sw = g.active && (g.direction == GravityDir::LEFT ||
-                                       g.direction == GravityDir::RIGHT);
+                bool  sw        = g.active && (g.direction == GravityDir::LEFT || g.direction == GravityDir::RIGHT);
                 float rightEdge = t.x + (sw ? c.h : c.w);
                 if (rightEdge > windowW) {
                     t.x = static_cast<float>(windowW - (sw ? c.h : c.w));
                     activate(GravityDir::RIGHT);
                 }
             }
-            // TOP wall — player's top edge (t.y) must stay >= 0
+            // TOP wall
             if (t.y < 0.0f) {
                 t.y = 0.0f;
                 activate(GravityDir::UP);
             }
-            // BOTTOM wall — player's bottom edge depends on current gravity direction
-            //   LEFT/RIGHT gravity: bottom = t.y + c.w  (rotated: narrow axis is vertical)
-            //   UP/DOWN gravity:    bottom = t.y + c.h
+            // BOTTOM wall
             {
-                bool sw = g.active && (g.direction == GravityDir::LEFT ||
-                                       g.direction == GravityDir::RIGHT);
+                bool  sw         = g.active && (g.direction == GravityDir::LEFT || g.direction == GravityDir::RIGHT);
                 float bottomEdge = t.y + (sw ? c.w : c.h);
                 if (bottomEdge > windowH) {
                     t.y = static_cast<float>(windowH - (sw ? c.w : c.h));
@@ -73,8 +65,6 @@ inline void BoundsSystem(entt::registry& reg, float dt, int windowW, int windowH
                 }
             }
 
-            // Ground detection — clamp and set isGrounded when touching the gravity wall.
-            // Each case uses the correct dimension for that specific wall direction.
             if (g.active) {
                 switch (g.direction) {
                     case GravityDir::DOWN:
@@ -83,6 +73,8 @@ inline void BoundsSystem(entt::registry& reg, float dt, int windowW, int windowH
                             g.velocity   = 0.0f;
                             g.isGrounded = true;
                         }
+                        // Hard clamp — never let player sink below floor regardless of source
+                        if (t.y + c.h > windowH) t.y = static_cast<float>(windowH - c.h);
                         break;
                     case GravityDir::UP:
                         if (t.y <= 0.0f) {
@@ -90,22 +82,23 @@ inline void BoundsSystem(entt::registry& reg, float dt, int windowW, int windowH
                             g.velocity   = 0.0f;
                             g.isGrounded = true;
                         }
+                        if (t.y < 0.0f) t.y = 0.0f;
                         break;
                     case GravityDir::LEFT:
-                        // Left wall: depth axis is c.h, so floor edge is t.x (left edge)
                         if (t.x <= 0.0f) {
                             t.x          = 0.0f;
                             g.velocity   = 0.0f;
                             g.isGrounded = true;
                         }
+                        if (t.x < 0.0f) t.x = 0.0f;
                         break;
                     case GravityDir::RIGHT:
-                        // Right wall: depth axis is c.h, so floor edge is t.x + c.h
                         if (t.x + c.h >= windowW) {
                             t.x          = static_cast<float>(windowW - c.h);
                             g.velocity   = 0.0f;
                             g.isGrounded = true;
                         }
+                        if (t.x + c.h > windowW) t.x = static_cast<float>(windowW - c.h);
                         break;
                 }
             }

@@ -3,10 +3,6 @@
 #include <SDL3/SDL.h>
 #include <entt/entt.hpp>
 
-inline constexpr int PLAYER_STAND_HEIGHT = 60;
-inline constexpr int PLAYER_STAND_WIDTH  = 32;
-inline constexpr int PLAYER_DUCK_HEIGHT  = 32;
-inline constexpr int PLAYER_DUCK_WIDTH   = 44;
 inline constexpr int PLAYER_DUCK_ROFF_X  = 5;
 inline constexpr int PLAYER_STAND_ROFF_X = -24;
 
@@ -20,10 +16,11 @@ inline void PlayerStateSystem(entt::registry& reg) {
                      Renderable& r, AnimationState& anim,
                      const AnimationSet& set, const InvincibilityTimer& inv) {
 
+        // ── Determine target animation ────────────────────────────────────
         const std::vector<SDL_Rect>* frames = nullptr;
-        float    fps     = 12.0f;
-        bool     looping = true;
-        AnimationID id   = AnimationID::NONE;
+        float       fps     = 12.0f;
+        bool        looping = true;
+        AnimationID id      = AnimationID::NONE;
 
         bool moving = std::abs(v.dx) > 1.0f || std::abs(v.dy) > 1.0f;
 
@@ -39,6 +36,37 @@ inline void PlayerStateSystem(entt::registry& reg) {
             frames = &set.idle; fps = 8.0f;                  id = AnimationID::IDLE;
         }
 
+        // ── Collider enforcement — runs every frame, before any early-out ─
+        // Must be here so wall transitions (which reset col to standing dims)
+        // get corrected even when the animation ID hasn't changed.
+        bool ducking = (id == AnimationID::DUCK);
+        {
+            int wantW = ducking ? PLAYER_DUCK_WIDTH  : PLAYER_STAND_WIDTH;
+            int wantH = ducking ? PLAYER_DUCK_HEIGHT : PLAYER_STAND_HEIGHT;
+
+            if (col.w != wantW || col.h != wantH) {
+                switch (g.direction) {
+                    case GravityDir::DOWN:
+                        t.y = (t.y + col.h) - wantH;
+                        break;
+                    case GravityDir::RIGHT:
+                        t.x = (t.x + col.h) - wantH;
+                        break;
+                    case GravityDir::UP:
+                    case GravityDir::LEFT:
+                        break;
+                }
+                col.w = wantW;
+                col.h = wantH;
+
+                if (g.direction == GravityDir::DOWN) {
+                    if (auto* roff = reg.try_get<RenderOffset>(entity))
+                        roff->x = ducking ? PLAYER_DUCK_ROFF_X : PLAYER_STAND_ROFF_X;
+                }
+            }
+        }
+
+        // ── Animation swap — only when animation actually changes ─────────
         if (!frames || anim.currentAnim == id) return;
 
         SDL_Surface* sheet = nullptr;
@@ -58,22 +86,6 @@ inline void PlayerStateSystem(entt::registry& reg) {
                 for (auto* s : fc.frames) if (s) SDL_DestroySurface(s);
                 fc.frames.clear();
             }
-        }
-
-        bool wasDucking = anim.currentAnim == AnimationID::DUCK;
-        bool nowDucking = id == AnimationID::DUCK;
-        if (wasDucking != nowDucking) {
-            int newH = nowDucking ? PLAYER_DUCK_HEIGHT : PLAYER_STAND_HEIGHT;
-            int newW = nowDucking ? PLAYER_DUCK_WIDTH  : PLAYER_STAND_WIDTH;
-
-            if (auto* roff = reg.try_get<RenderOffset>(entity))
-                roff->x = nowDucking ? PLAYER_DUCK_ROFF_X : PLAYER_STAND_ROFF_X;
-
-            if (g.direction == GravityDir::DOWN)
-                t.y = (t.y + col.h) - newH;
-
-            col.h = newH;
-            col.w = newW;
         }
 
         r.frames          = *frames;

@@ -136,8 +136,8 @@ class GameScene : public Scene {
         if (!gameOver) {
             MovementSystem(reg, dt, mWindow->GetWidth());
             CenterPullSystem(reg, dt, mWindow->GetWidth(), mWindow->GetHeight());
-            BoundsSystem(reg, dt, mWindow->GetWidth(), mWindow->GetHeight());
-            PlayerStateSystem(reg);
+            PlayerStateSystem(reg);  // resize collider first
+            BoundsSystem(reg, dt, mWindow->GetWidth(), mWindow->GetHeight()); // snap with correct col
             AnimationSystem(reg, dt);
             CollisionSystem(reg, dt, gameOver, coinCount, stompCount, mWindow->GetWidth(), mWindow->GetHeight());
 

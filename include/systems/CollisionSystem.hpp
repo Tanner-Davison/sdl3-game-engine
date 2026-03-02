@@ -71,20 +71,22 @@ inline void CollisionSystem(entt::registry& reg, float dt, bool& gameOver, int& 
         bool onDeadEnemy = false;
         deadEnemyView.each([&](const Transform& et, const Collider& ec) {
             if (g.velocity < 0.0f) return;
+            // pw/ph are the world-space extents of the player collider,
+            // already swapped for sidewall gravity above.
+            bool horizOverlap = pt.x < et.x + ec.w && pt.x + pw > et.x;
+            bool vertOverlap  = pt.y < et.y + ec.h && pt.y + ph > et.y;
             switch (g.direction) {
                 case GravityDir::DOWN: {
-                    float bottom = pt.y + pc.h;
-                    if (pt.x < et.x + ec.w && pt.x + pc.w > et.x &&
-                        bottom >= et.y && bottom <= et.y + ec.h) {
-                        pt.y = et.y - pc.h;
+                    float bottom = pt.y + ph;
+                    if (horizOverlap && bottom >= et.y && bottom <= et.y + ec.h) {
+                        pt.y = et.y - ph;
                         g.velocity = 0.0f;
                         g.isGrounded = onDeadEnemy = true;
                     }
                     break;
                 }
                 case GravityDir::UP: {
-                    if (pt.x < et.x + ec.w && pt.x + pc.w > et.x &&
-                        pt.y <= et.y + ec.h && pt.y >= et.y) {
+                    if (horizOverlap && pt.y <= et.y + ec.h && pt.y >= et.y) {
                         pt.y = et.y + ec.h;
                         g.velocity = 0.0f;
                         g.isGrounded = onDeadEnemy = true;
@@ -92,8 +94,8 @@ inline void CollisionSystem(entt::registry& reg, float dt, bool& gameOver, int& 
                     break;
                 }
                 case GravityDir::LEFT: {
-                    if (pt.y < et.y + ec.h && pt.y + pc.h > et.y &&
-                        pt.x <= et.x + ec.w && pt.x >= et.x) {
+                    float left = pt.x;
+                    if (vertOverlap && left <= et.x + ec.w && left >= et.x) {
                         pt.x = et.x + ec.w;
                         g.velocity = 0.0f;
                         g.isGrounded = onDeadEnemy = true;
@@ -101,10 +103,9 @@ inline void CollisionSystem(entt::registry& reg, float dt, bool& gameOver, int& 
                     break;
                 }
                 case GravityDir::RIGHT: {
-                    float right = pt.x + pc.h;
-                    if (pt.y < et.y + ec.h && pt.y + pc.w > et.y &&
-                        right >= et.x && right <= et.x + ec.w) {
-                        pt.x = et.x - pc.h;
+                    float right = pt.x + pw;
+                    if (vertOverlap && right >= et.x && right <= et.x + ec.w) {
+                        pt.x = et.x - pw;
                         g.velocity = 0.0f;
                         g.isGrounded = onDeadEnemy = true;
                     }
@@ -114,12 +115,13 @@ inline void CollisionSystem(entt::registry& reg, float dt, bool& gameOver, int& 
         });
 
         if (!onDeadEnemy && g.isGrounded) {
+            constexpr float TOL = 1.0f;
             bool onWindow = false;
             switch (g.direction) {
-                case GravityDir::DOWN:  onWindow = pt.y + pc.h >= windowH; break;
-                case GravityDir::UP:    onWindow = pt.y <= 0.0f;            break;
-                case GravityDir::LEFT:  onWindow = pt.x <= 0.0f;            break;
-                case GravityDir::RIGHT: onWindow = pt.x + pc.h >= windowW;  break;
+                case GravityDir::DOWN:  onWindow = pt.y + ph >= windowH - TOL; break;
+                case GravityDir::UP:    onWindow = pt.y <= TOL;                break;
+                case GravityDir::LEFT:  onWindow = pt.x <= TOL;                break;
+                case GravityDir::RIGHT: onWindow = pt.x + pw >= windowW - TOL; break;
             }
             if (!onWindow) g.isGrounded = false;
         }

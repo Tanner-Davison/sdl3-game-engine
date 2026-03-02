@@ -12,10 +12,11 @@ inline SDL_Surface* RotateSurface90CW(SDL_Surface* src) {
     SDL_LockSurface(dst);
     for (int y = 0; y < src->h; y++) {
         for (int x = 0; x < src->w; x++) {
-            Uint32* srcPx = reinterpret_cast<Uint32*>(static_cast<Uint8*>(src->pixels) + y * src->pitch + x * 4);
-            Uint32* dstPx =
-                reinterpret_cast<Uint32*>(static_cast<Uint8*>(dst->pixels) + x * dst->pitch + (src->h - 1 - y) * 4);
-            *dstPx = *srcPx;
+            Uint32* srcPx = reinterpret_cast<Uint32*>(static_cast<Uint8*>(src->pixels) +
+                                                      y * src->pitch + x * 4);
+            Uint32* dstPx = reinterpret_cast<Uint32*>(static_cast<Uint8*>(dst->pixels) +
+                                                      x * dst->pitch + (src->h - 1 - y) * 4);
+            *dstPx        = *srcPx;
         }
     }
     SDL_UnlockSurface(src);
@@ -77,10 +78,11 @@ inline SDL_Surface* RotateSurface90CCW(SDL_Surface* src) {
     SDL_LockSurface(dst);
     for (int y = 0; y < src->h; y++) {
         for (int x = 0; x < src->w; x++) {
-            Uint32* srcPx = reinterpret_cast<Uint32*>(static_cast<Uint8*>(src->pixels) + y * src->pitch + x * 4);
-            Uint32* dstPx =
-                reinterpret_cast<Uint32*>(static_cast<Uint8*>(dst->pixels) + (src->w - 1 - x) * dst->pitch + y * 4);
-            *dstPx = *srcPx;
+            Uint32* srcPx = reinterpret_cast<Uint32*>(static_cast<Uint8*>(src->pixels) +
+                                                      y * src->pitch + x * 4);
+            Uint32* dstPx = reinterpret_cast<Uint32*>(static_cast<Uint8*>(dst->pixels) +
+                                                      (src->w - 1 - x) * dst->pitch + y * 4);
+            *dstPx        = *srcPx;
         }
     }
     SDL_UnlockSurface(src);
@@ -97,9 +99,11 @@ inline SDL_Surface* RotateSurface180(SDL_Surface* src) {
     SDL_LockSurface(dst);
     for (int y = 0; y < src->h; y++) {
         for (int x = 0; x < src->w; x++) {
-            Uint32* srcPx = reinterpret_cast<Uint32*>(static_cast<Uint8*>(src->pixels) + y * src->pitch + x * 4);
-            Uint32* dstPx = reinterpret_cast<Uint32*>(static_cast<Uint8*>(dst->pixels) + (src->h - 1 - y) * dst->pitch +
-                                      (src->w - 1 - x) * 4);
+            Uint32* srcPx = reinterpret_cast<Uint32*>(static_cast<Uint8*>(src->pixels) +
+                                                      y * src->pitch + x * 4);
+            Uint32* dstPx = reinterpret_cast<Uint32*>(static_cast<Uint8*>(dst->pixels) +
+                                                      (src->h - 1 - y) * dst->pitch +
+                                                      (src->w - 1 - x) * 4);
             *dstPx        = *srcPx;
         }
     }

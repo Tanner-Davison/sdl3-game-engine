@@ -160,12 +160,14 @@ inline void RenderSystem(entt::registry& reg, SDL_Surface* screen) {
                         if (roff) { renderX += roff->x; renderY += roff->y; }
                         break;
                     case GravityDir::UP:
-                        // 180°: feet at top of frame. fy=-10 means there are 10px of
-                        // transparent head-padding now at the TOP of the rotated frame
-                        // (since 180° puts the original bottom at the top).
-                        // Pull sprite UP by |fy| so the actual feet pixels touch t.y=0.
-                        renderX += cx;      // same horizontal centering as DOWN
-                        renderY += fy;      // fy=-10 => renderY -= 10, feet flush to ceiling
+                        // 180° rotation: the original sprite bottom is now at the top.
+                        // t.y is the floor (ceiling wall). The sprite must hang downward
+                        // from t.y. The original sprite had `fy` px of foot-padding at
+                        // the bottom; after 180° that padding is now at the top of the
+                        // frame, so we shift up by fy to tuck it against the wall.
+                        // Full placement: sprite top = t.y + fy, hangs to t.y + fy + 80.
+                        renderX += cx;
+                        renderY += fy;
                         break;
                     case GravityDir::LEFT:
                         // 90CW: feet at left of frame. Feet padding (fy=-10) now on X axis.

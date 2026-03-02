@@ -3,6 +3,10 @@
 #include <SDL3/SDL.h>
 #include <vector>
 
+inline constexpr int   PLAYER_STAND_WIDTH   = 32;
+inline constexpr int   PLAYER_STAND_HEIGHT  = 60;
+inline constexpr int   PLAYER_DUCK_WIDTH    = 44;
+inline constexpr int   PLAYER_DUCK_HEIGHT   = 32;
 inline constexpr float PLAYER_HIT_DAMAGE    = 15.0f;
 inline constexpr float PLAYER_INVINCIBILITY = 1.5f;
 inline constexpr float PLAYER_MAX_HEALTH    = 100.0f;
@@ -15,7 +19,7 @@ inline constexpr float GRAVITY_FORCE        = 800.0f; // pixels/sec^2
 inline constexpr float JUMP_FORCE           = 450.0f; // pixels/sec
 inline constexpr float MAX_FALL_SPEED       = 1000.0f;
 inline constexpr float PLAYER_SPEED         = 300.0f;
-inline constexpr int   GRAVITYSLUGSCOUNT    = 20;
+inline constexpr int   GRAVITYSLUGSCOUNT    = 4;
 inline constexpr int   COIN_COUNT           = 8;
 inline constexpr int   COIN_SIZE            = 40;
 // Position and size in the world
