@@ -175,6 +175,42 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
         }
     }
 
+    // ── Import text input mode ─────────────────────────────────────────────────
+    // While active, capture all keypresses for the path buffer and suppress
+    // normal editor hotkeys. This is the reliable import path under WSL2 where
+    // OS drag-and-drop does not reach SDL via XWayland.
+    if (mImportInputActive) {
+        if (e.type == SDL_EVENT_TEXT_INPUT) {
+            mImportInputText += e.text.text;
+            return true;
+        }
+        if (e.type == SDL_EVENT_KEY_DOWN) {
+            if (e.key.key == SDLK_ESCAPE) {
+                // Cancel
+                mImportInputActive = false;
+                mImportInputText.clear();
+                SetStatus("Import cancelled");
+                SDL_StopTextInput(mWindow ? mWindow->GetRaw() : nullptr);
+                return true;
+            }
+            if (e.key.key == SDLK_BACKSPACE && !mImportInputText.empty()) {
+                mImportInputText.pop_back();
+                return true;
+            }
+            if (e.key.key == SDLK_RETURN || e.key.key == SDLK_KP_ENTER) {
+                // Commit import
+                std::string path = mImportInputText;
+                mImportInputActive = false;
+                mImportInputText.clear();
+                SDL_StopTextInput(mWindow ? mWindow->GetRaw() : nullptr);
+                if (!path.empty())
+                    ImportDroppedTile(path);
+                return true;
+            }
+        }
+        return true; // swallow all other events while input is open
+    }
+
     if (e.type == SDL_EVENT_KEY_DOWN) {
         switch (e.key.key) {
             case SDLK_1: mActiveTool = Tool::Coin;        lblTool->CreateSurface("Tool: Coin");        break;
@@ -182,6 +218,13 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
             case SDLK_3: mActiveTool = Tool::Tile;        lblTool->CreateSurface("Tool: Tile");        break;
             case SDLK_4: mActiveTool = Tool::Erase;       lblTool->CreateSurface("Tool: Erase");       break;
             case SDLK_5: mActiveTool = Tool::PlayerStart; lblTool->CreateSurface("Tool: Player");      break;
+            case SDLK_I:
+                // Open the inline import input bar
+                mImportInputActive = true;
+                mImportInputText.clear();
+                SDL_StartTextInput(mWindow ? mWindow->GetRaw() : nullptr);
+                SetStatus("Import path: (type full path, Enter to import, Esc to cancel)");
+                break;
             case SDLK_S:
                 if (e.key.mod & SDL_KMOD_CTRL) {
                     fs::create_directories("levels");
@@ -501,9 +544,33 @@ void LevelEditorScene::Render(Window& window) {
     Text cntT(counts, SDL_Color{160,160,160,255}, 6, window.GetHeight()-22, 12);
     cntT.Render(screen);
 
-    Text hintT("1:Coin 2:Enemy 3:Tile 4:Erase 5:Player  Ctrl+S:Save  Ctrl+Z:Undo  Wheel:TileSize",
+    Text hintT("1:Coin 2:Enemy 3:Tile 4:Erase 5:Player  I:Import  Ctrl+S:Save  Ctrl+Z:Undo  Wheel:TileSize",
                SDL_Color{100,100,100,255}, 150, window.GetHeight()-22, 11);
     hintT.Render(screen);
+
+    // ── Import input bar ─────────────────────────────────────────────────────────
+    if (mImportInputActive) {
+        // Panel anchored just above the bottom hint bar
+        int panelH = 44;
+        int panelY = window.GetHeight() - 24 - panelH;
+        DrawRect(screen, {0, panelY, cw, panelH}, {10, 20, 50, 240});
+        DrawOutline(screen, {0, panelY, cw, panelH}, {80, 180, 255, 255}, 2);
+
+        // Label
+        Text importLbl("Import tile (⌘I / Enter to confirm, Esc to cancel):",
+                       SDL_Color{140, 200, 255, 255}, 8, panelY + 4, 11);
+        importLbl.Render(screen);
+
+        // Input field background
+        int fieldX = 8, fieldY = panelY + 18, fieldW = cw - 16, fieldH = 20;
+        DrawRect(screen, {fieldX, fieldY, fieldW, fieldH}, {20, 35, 80, 255});
+        DrawOutline(screen, {fieldX, fieldY, fieldW, fieldH}, {80, 180, 255, 200});
+
+        // Current text with blinking cursor
+        std::string display = mImportInputText + "|";  // simple cursor
+        Text inputText(display, SDL_Color{255, 255, 255, 255}, fieldX + 4, fieldY + 2, 12);
+        inputText.Render(screen);
+    }
 
     // ── Drop overlay ──────────────────────────────────────────────────────────
     // Draw a full-screen semi-transparent highlight when a file drag is active

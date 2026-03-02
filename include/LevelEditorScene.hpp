@@ -54,7 +54,16 @@ class LevelEditorScene : public Scene {
     // --- Drop state ---
     // True between SDL_EVENT_DROP_BEGIN and SDL_EVENT_DROP_COMPLETE so we can
     // draw a visual overlay while the user is hovering a file over the window.
+    // NOTE: Under WSL2, OS-level drag-and-drop from Windows Explorer does not
+    // reach SDL via XDND because WSLg's XWayland does not bridge COM drops.
+    // The import text input (press I) is the primary import path in WSL2.
     bool mDropActive = false;
+
+    // --- Import input state ---
+    // Press I to toggle an inline path input bar. User types a file path and
+    // presses Enter to import it. Works on all platforms including WSL2.
+    bool        mImportInputActive = false;
+    std::string mImportInputText;
 
     Level mLevel;
 
