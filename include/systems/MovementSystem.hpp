@@ -7,11 +7,26 @@
 inline void MovementSystem(entt::registry& reg, float dt, int windowW) {
     const bool* keys = SDL_GetKeyboardState(nullptr);
 
-    auto playerView = reg.view<Transform, Velocity, GravityState, PlayerTag>();
-    playerView.each([dt, keys](Transform& t, Velocity& v, GravityState& g) {
+    auto playerView = reg.view<Transform, Velocity, GravityState, PlayerTag, ClimbState>();
+    playerView.each([dt, keys](Transform& t, Velocity& v, GravityState& g, const ClimbState& climb) {
         constexpr float friction = 3.0f;
 
         if (!g.active) {
+            // While climbing or parked at top, LadderSystem owns v.dy entirely.
+            // Only apply horizontal movement here — never touch v.dy.
+            if (climb.climbing || climb.atTop) {
+                // LadderSystem already moved t.y directly this frame.
+                // We only handle horizontal movement here — never touch t.y.
+                bool movingH = keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_D];
+                if (!movingH) {
+                    v.dx -= v.dx * friction * dt;
+                    if (std::abs(v.dx) < 0.5f) v.dx = 0.0f;
+                }
+                t.x += v.dx * dt;
+                // t.y intentionally NOT touched here
+                return;
+            }
+            // Free-float mode (gravity off for other reasons, e.g. wall-run punishment)
             bool moving = keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_S] ||
                           keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_D];
             if (!moving) {

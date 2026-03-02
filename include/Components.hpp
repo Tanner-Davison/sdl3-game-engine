@@ -84,7 +84,8 @@ struct FlipCache {
     FlipCache& operator=(FlipCache&& o) noexcept {
         if (this != &o) {
             for (auto* s : frames)
-                if (s) SDL_DestroySurface(s);
+                if (s)
+                    SDL_DestroySurface(s);
             frames = std::move(o.frames);
         }
         return *this;
@@ -92,7 +93,8 @@ struct FlipCache {
 
     ~FlipCache() {
         for (auto* s : frames)
-            if (s) SDL_DestroySurface(s);
+            if (s)
+                SDL_DestroySurface(s);
     }
 };
 
@@ -131,8 +133,17 @@ struct GravityState {
 
 // ── Tags (marker components — no data) ───────────────────────────────────────
 
-struct PlayerTag {};  // marks the player entity
-struct EnemyTag  {};  // marks a live enemy entity
-struct CoinTag   {};  // marks a collectible coin
-struct DeadTag   {};  // marks a stomped enemy — no longer harmful, acts as a platform
-struct TileTag   {};  // marks a solid tile — blocks movement
+struct PlayerTag {}; // marks the player entity
+struct EnemyTag {};  // marks a live enemy entity
+struct CoinTag {};   // marks a collectible coin
+struct DeadTag {};   // marks a stomped enemy — no longer harmful, acts as a platform
+struct TileTag {};   // marks a solid tile — blocks movement
+struct LadderTag {}; // marks a ladder tile — passthrough, player can climb with W/S
+struct PropTag {};   // marks a prop tile — rendered only, no collision, no interaction
+
+// ── Ladder / climbing state ───────────────────────────────────────────────────
+struct ClimbState {
+    bool onLadder = false; // true while player overlaps a ladder tile this frame
+    bool climbing = false; // true while actively climbing (gravity suspended)
+    bool atTop    = false; // true when player reached the top and is hanging there
+};

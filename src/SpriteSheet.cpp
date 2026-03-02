@@ -33,6 +33,10 @@ SpriteSheet::SpriteSheet(const std::string& directory, const std::string& prefix
     int startIdx = (padDigits > 0) ? 0 : 1;
     int endIdx   = startIdx + frameCount - 1;
 
+    // Load frames in strict numeric order (startIdx..endIdx) so that column i
+    // in the stitched surface always matches frame number startIdx+i.
+    // This avoids the lex-vs-numeric mismatch where filesystem order puts
+    // "Gold_10" before "Gold_2", causing wrong rects to be stored in frames[].
     for (int i = startIdx; i <= endIdx; i++) {
         std::string numStr = std::to_string(i);
         if (padDigits > 0)
@@ -71,6 +75,7 @@ SpriteSheet::SpriteSheet(const std::string& directory, const std::string& prefix
     }
     SDL_SetSurfaceBlendMode(surface, SDL_BLENDMODE_BLEND);
 
+    // Stitch and register rects — column i corresponds to frame number startIdx+i.
     for (int i = 0; i < static_cast<int>(frameSurfaces.size()); i++) {
         SDL_Rect dest = {i * frameW, 0, frameW, frameH};
         SDL_SetSurfaceBlendMode(frameSurfaces[i], SDL_BLENDMODE_NONE);
@@ -79,6 +84,8 @@ SpriteSheet::SpriteSheet(const std::string& directory, const std::string& prefix
         std::string frameKey = std::to_string(frameIdx);
         if (padDigits > 0)
             frameKey = std::string(std::max(0, padDigits - (int)frameKey.size()), '0') + frameKey;
+        // Store rect using the numeric key — GetAnimation will sort by stoi(suffix)
+        // and get back exactly the same order as the stitched columns.
         frames[prefix + frameKey] = {i * frameW, 0, frameW, frameH};
         SDL_DestroySurface(frameSurfaces[i]);
     }

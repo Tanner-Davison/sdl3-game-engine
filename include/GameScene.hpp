@@ -26,8 +26,9 @@ class GameScene : public Scene {
     // Default constructor — uses hardcoded / random level data
     GameScene() = default;
 
-    // Load from a saved level file (produced by LevelEditorScene)
-    explicit GameScene(const std::string& levelPath);
+    // Load from a saved level file (produced by LevelEditorScene).
+    // fromEditor=true means ESC pause menu offers "Back to Editor" instead of "Back to Title".
+    explicit GameScene(const std::string& levelPath, bool fromEditor = false);
 
     void Load(Window& window) override;
     void Unload() override;
@@ -46,6 +47,8 @@ class GameScene : public Scene {
     int            stompCount         = 0;
     Window*        mWindow            = nullptr;
     std::string    mLevelPath;
+    bool           mFromEditor        = false;  // true = launched via editor Play button
+    bool           mPauseRequested    = false;  // set when ESC pressed during play
     Level          mLevel;
     SDL_Rect       retryBtnRect{};
 

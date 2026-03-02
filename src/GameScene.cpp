@@ -2,6 +2,7 @@
 #include "GameConfig.hpp"
 #include "GameEvents.hpp"
 #include "LevelTwo.hpp"
+#include "PauseMenuScene.hpp"
 #include <SDL3_image/SDL_image.h>
 #include <cstdlib>
 #include <print>
@@ -10,7 +11,8 @@
 // Construction
 // ─────────────────────────────────────────────────────────────────────────────
 
-GameScene::GameScene(const std::string& levelPath) : mLevelPath(levelPath) {}
+GameScene::GameScene(const std::string& levelPath, bool fromEditor)
+    : mLevelPath(levelPath), mFromEditor(fromEditor) {}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Scene interface
@@ -94,6 +96,10 @@ void GameScene::Unload() {
 }
 
 std::unique_ptr<Scene> GameScene::NextScene() {
+    if (mPauseRequested) {
+        mPauseRequested = false;
+        return std::make_unique<PauseMenuScene>(mLevelPath, mFromEditor);
+    }
     if (levelComplete && levelCompleteTimer <= 0.0f)
         return std::make_unique<LevelTwo>();
     return nullptr;
@@ -104,6 +110,11 @@ bool GameScene::HandleEvent(SDL_Event& e) {
         return false;
 
     if (!gameOver) {
+        // ESC during active play — request pause
+        if (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_ESCAPE && !levelComplete) {
+            mPauseRequested = true;
+            return true;
+        }
         InputSystem(reg, e);
     } else {
         if (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_R)
@@ -129,9 +140,11 @@ void GameScene::Update(float dt) {
     }
     if (gameOver) return;
 
+    LadderSystem(reg, dt);
     MovementSystem(reg, dt, mWindow->GetWidth());
     CenterPullSystem(reg, dt, mWindow->GetWidth(), mWindow->GetHeight());
-    BoundsSystem(reg, dt, mWindow->GetWidth(), mWindow->GetHeight());
+    BoundsSystem(reg, dt, mWindow->GetWidth(), mWindow->GetHeight(),
+                 mLevel.gravityMode == GravityMode::WallRun);
     PlayerStateSystem(reg);
     AnimationSystem(reg, dt);
 
@@ -201,7 +214,9 @@ void GameScene::Spawn() {
     coinSheet = std::make_unique<SpriteSheet>("game_assets/gold_coins/", "Gold_", 30, 40, 40);
     std::vector<SDL_Rect> coinFrames = coinSheet->GetAnimation("Gold_");
 
-    // ── Spawn coins — from level file if loaded, otherwise random wall placement ──
+    // ── Spawn coins ───────────────────────────────────────────────────────────
+    // When a level file is provided, spawn exactly what's in it (even if empty).
+    // Random fallback only runs in the no-file / sandbox mode.
     auto spawnCoin = [&](float cx, float cy) {
         auto coin = reg.create();
         reg.emplace<Transform>(coin, cx, cy);
@@ -211,10 +226,12 @@ void GameScene::Spawn() {
         reg.emplace<CoinTag>(coin);
     };
 
-    if (!mLevelPath.empty() && !mLevel.coins.empty()) {
+    if (!mLevelPath.empty()) {
+        // Level file loaded — spawn only what the level defines (may be zero)
         for (const auto& c : mLevel.coins)
             spawnCoin(c.x, c.y);
     } else {
+        // No level file — sandbox/freeplay mode, use random wall placement
         for (int i = 0; i < COIN_COUNT; i++) {
             int   wall = rand() % 3;
             float cx = 0.0f, cy = 0.0f;
@@ -255,6 +272,7 @@ void GameScene::Spawn() {
     reg.emplace<RenderOffset>(player, PLAYER_STAND_ROFF_X, -10);
     reg.emplace<InvincibilityTimer>(player);
     reg.emplace<GravityState>(player);
+    reg.emplace<ClimbState>(player);
     reg.emplace<AnimationSet>(player, AnimationSet{
         .idle       = idleFrames,  .idleSheet  = knightIdleSheet->GetSurface(),
         .walk       = walkFrames,  .walkSheet  = knightWalkSheet->GetSurface(),
@@ -291,8 +309,17 @@ void GameScene::Spawn() {
 
         auto tile = reg.create();
         reg.emplace<Transform>(tile, ts.x, ts.y);
-        reg.emplace<Collider>(tile, ts.w, ts.h);
-        reg.emplace<TileTag>(tile);
+        // Props: visual only. Ladders: passthrough but tagged for climb detection.
+        // Solid tiles: full collision.
+        if (ts.ladder) {
+            reg.emplace<LadderTag>(tile);
+            reg.emplace<Collider>(tile, ts.w, ts.h); // collider needed for overlap test
+        } else if (ts.prop) {
+            reg.emplace<PropTag>(tile);
+        } else {
+            reg.emplace<Collider>(tile, ts.w, ts.h);
+            reg.emplace<TileTag>(tile);
+        }
         std::vector<SDL_Rect> tileFrame = {{0, 0, ts.w, ts.h}};
         reg.emplace<Renderable>(tile, scaled, tileFrame, false);
         reg.emplace<AnimationState>(tile, 0, 1, 0.0f, 1.0f, false);
@@ -311,10 +338,12 @@ void GameScene::Spawn() {
         reg.emplace<EnemyTag>(enemy);
     };
 
-    if (!mLevelPath.empty() && !mLevel.enemies.empty()) {
+    if (!mLevelPath.empty()) {
+        // Level file loaded — spawn only what the level defines (may be zero)
         for (const auto& e : mLevel.enemies)
             spawnEnemy(e.x, e.y, e.speed);
     } else {
+        // No level file — sandbox/freeplay mode, spawn random enemies
         for (int i = 0; i < GRAVITYSLUGSCOUNT; ++i) {
             float x     = static_cast<float>(rand() % (mWindow->GetWidth() - 100));
             float y     = static_cast<float>(rand() % (mWindow->GetHeight() - SLIME_SPRITE_HEIGHT));

@@ -9,9 +9,10 @@ using json = nlohmann::json;
 
 inline bool SaveLevel(const Level& level, const std::string& path) {
     json j;
-    j["name"]       = level.name;
-    j["background"] = level.background;
-    j["player"]     = {{"x", level.player.x}, {"y", level.player.y}};
+    j["name"]        = level.name;
+    j["background"]  = level.background;
+    j["gravityMode"] = (level.gravityMode == GravityMode::WallRun) ? "wallrun" : "platformer";
+    j["player"]      = {{"x", level.player.x}, {"y", level.player.y}};
 
     j["coins"] = json::array();
     for (const auto& c : level.coins)
@@ -23,7 +24,13 @@ inline bool SaveLevel(const Level& level, const std::string& path) {
 
     j["tiles"] = json::array();
     for (const auto& t : level.tiles)
-        j["tiles"].push_back({{"x", t.x}, {"y", t.y}, {"w", t.w}, {"h", t.h}, {"img", t.imagePath}});
+        j["tiles"].push_back({{"x", t.x},
+                              {"y", t.y},
+                              {"w", t.w},
+                              {"h", t.h},
+                              {"img", t.imagePath},
+                              {"prop", t.prop},
+                              {"ladder", t.ladder}});
 
     std::ofstream file(path);
     if (!file.is_open()) {
@@ -50,8 +57,10 @@ inline bool LoadLevel(const std::string& path, Level& out) {
         return false;
     }
 
-    out.name       = j.value("name", "Untitled");
-    out.background = j.value("background", "game_assets/backgrounds/deepspace_scene.png");
+    out.name        = j.value("name", "Untitled");
+    out.background  = j.value("background", "game_assets/backgrounds/deepspace_scene.png");
+    out.gravityMode = (j.value("gravityMode", "platformer") == "wallrun")
+                      ? GravityMode::WallRun : GravityMode::Platformer;
 
     if (j.contains("player")) {
         out.player.x = j["player"].value("x", 0.0f);
@@ -64,15 +73,22 @@ inline bool LoadLevel(const std::string& path, Level& out) {
 
     out.enemies.clear();
     for (const auto& e : j.value("enemies", json::array()))
-        out.enemies.push_back({e.value("x", 0.0f), e.value("y", 0.0f), e.value("speed", 120.0f)});
+        out.enemies.push_back(
+            {e.value("x", 0.0f), e.value("y", 0.0f), e.value("speed", 120.0f)});
 
     out.tiles.clear();
     for (const auto& t : j.value("tiles", json::array()))
-        out.tiles.push_back({t.value("x", 0.0f), t.value("y", 0.0f),
-                             t.value("w", 40), t.value("h", 40),
-                             t.value("img", std::string{})});
+        out.tiles.push_back({t.value("x", 0.0f),
+                             t.value("y", 0.0f),
+                             t.value("w", 40),
+                             t.value("h", 40),
+                             t.value("img", std::string{}),
+                             t.value("prop", false),
+                             t.value("ladder", false)});
 
     std::print("Level loaded: {} ({} coins, {} enemies)\n",
-               out.name, out.coins.size(), out.enemies.size());
+               out.name,
+               out.coins.size(),
+               out.enemies.size());
     return true;
 }

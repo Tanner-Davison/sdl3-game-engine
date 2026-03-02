@@ -106,6 +106,27 @@ void LevelEditorScene::LoadTileView(const std::string& dir) {
     }
 }
 
+// ─── DetectResizeEdge ───────────────────────────────────────────────────────────
+LevelEditorScene::ResizeEdge LevelEditorScene::DetectResizeEdge(int idx, int mx, int my) const {
+    if (idx < 0 || idx >= (int)mLevel.tiles.size()) return ResizeEdge::None;
+    const auto& t = mLevel.tiles[idx];
+    int rx = (int)t.x, ry = (int)t.y, rw = t.w, rh = t.h;
+
+    // Must be inside (or very near) the tile first
+    if (mx < rx - RESIZE_HANDLE || mx > rx + rw + RESIZE_HANDLE) return ResizeEdge::None;
+    if (my < ry - RESIZE_HANDLE || my > ry + rh + RESIZE_HANDLE) return ResizeEdge::None;
+
+    bool nearRight  = (mx >= rx + rw - RESIZE_HANDLE && mx <= rx + rw + RESIZE_HANDLE);
+    bool nearBottom = (my >= ry + rh - RESIZE_HANDLE && my <= ry + rh + RESIZE_HANDLE);
+    bool insideH    = (mx >= rx && mx <= rx + rw);
+    bool insideV    = (my >= ry && my <= ry + rh);
+
+    if (nearRight && nearBottom)              return ResizeEdge::Corner;
+    if (nearRight  && (insideV || nearBottom)) return ResizeEdge::Right;
+    if (nearBottom && (insideH || nearRight))  return ResizeEdge::Bottom;
+    return ResizeEdge::None;
+}
+
 // ─── LoadBgPalette ────────────────────────────────────────────────────────────
 void LevelEditorScene::LoadBgPalette() {
     for (auto& item : mBgItems)
@@ -192,18 +213,25 @@ void LevelEditorScene::Load(Window& window) {
     // ── Toolbar ───────────────────────────────────────────────────────────────
     int bw=80, bh=44, pad=6, sx=pad, y0=8;
     auto nb = [&]() -> SDL_Rect { SDL_Rect r={sx,y0,bw,bh}; sx+=bw+pad; return r; };
-    btnCoin=nb(); btnEnemy=nb(); btnTile=nb(); btnErase=nb(); btnPlayerStart=nb();
-    sx+=pad; btnSave=nb(); btnLoad=nb(); sx+=pad; btnClear=nb(); sx+=pad; btnPlay=nb();
+    btnCoin=nb(); btnEnemy=nb(); btnTile=nb(); btnResize=nb(); btnProp=nb(); btnLadder=nb(); btnErase=nb(); btnPlayerStart=nb();
+    sx+=pad; btnSave=nb(); btnLoad=nb(); sx+=pad; btnClear=nb(); sx+=pad; btnPlay=nb(); sx+=pad; btnGravity=nb();
 
     auto mkLbl = [](const std::string& s, SDL_Rect r) {
         auto [x,y] = Text::CenterInRect(s, 13, r);
         return std::make_unique<Text>(s, SDL_Color{0,0,0,255}, x, y, 13);
     };
     lblCoin=mkLbl("Coin",btnCoin); lblEnemy=mkLbl("Enemy",btnEnemy);
-    lblTile=mkLbl("Tile",btnTile); lblErase=mkLbl("Erase",btnErase);
+    lblTile=mkLbl("Tile",btnTile); lblResize=mkLbl("Resize",btnResize);
+    lblProp=mkLbl("Prop",btnProp); lblLadder=mkLbl("Ladder",btnLadder); lblErase=mkLbl("Erase",btnErase);
     lblPlayer=mkLbl("Player",btnPlayerStart); lblSave=mkLbl("Save",btnSave);
     lblLoad=mkLbl("Load",btnLoad); lblClear=mkLbl("Clear",btnClear);
     lblPlay=mkLbl("Play",btnPlay);
+    // Gravity button label reflects current mode — updated whenever mode changes
+    {
+        std::string gLbl = (mLevel.gravityMode == GravityMode::WallRun) ? "Gravity:\nWallRun" : "Gravity:\nPlatform";
+        auto [gx,gy] = Text::CenterInRect(gLbl, 11, btnGravity);
+        lblGravity = std::make_unique<Text>(gLbl, SDL_Color{0,0,0,255}, gx, gy, 11);
+    }
 
     lblStatus = std::make_unique<Text>(mStatusMsg, SDL_Color{220,220,220,255}, pad, TOOLBAR_H+4, 12);
     lblTool   = std::make_unique<Text>("Tool: Coin", SDL_Color{255,215,0,255},
@@ -297,6 +325,30 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
             case SDLK_4: mActiveTool=Tool::Erase;       lblTool->CreateSurface("Tool: Erase");  break;
             case SDLK_5: mActiveTool=Tool::PlayerStart; lblTool->CreateSurface("Tool: Player"); break;
             case SDLK_6: mActiveTab=PaletteTab::Backgrounds; lblTool->CreateSurface("BG picker"); break;
+            case SDLK_7:
+            case SDLK_R:
+                mActiveTool=Tool::Resize; lblTool->CreateSurface("Tool: Resize");
+                mIsResizing=false; mHoverEdge=ResizeEdge::None; mHoverTileIdx=-1;
+                break;
+            case SDLK_8:
+            case SDLK_P:
+                mActiveTool=Tool::Prop; lblTool->CreateSurface("Tool: Prop");
+                break;
+            case SDLK_9:
+            case SDLK_L:
+                mActiveTool=Tool::Ladder; lblTool->CreateSurface("Tool: Ladder");
+                break;
+            case SDLK_G: {
+                // Toggle gravity mode
+                mLevel.gravityMode = (mLevel.gravityMode == GravityMode::Platformer)
+                    ? GravityMode::WallRun : GravityMode::Platformer;
+                bool isWall = (mLevel.gravityMode == GravityMode::WallRun);
+                std::string gLbl = isWall ? "Gravity:\nWallRun" : "Gravity:\nPlatform";
+                auto [gx,gy] = Text::CenterInRect(gLbl, 11, btnGravity);
+                lblGravity = std::make_unique<Text>(gLbl, SDL_Color{0,0,0,255}, gx, gy, 11);
+                SetStatus(isWall ? "Gravity: Wall-Run mode" : "Gravity: Platformer mode");
+                break;
+            }
             case SDLK_ESCAPE:
                 // Navigate back up when pressing Esc in tile browser
                 if (mActiveTab == PaletteTab::Tiles && mTileCurrentDir != TILE_ROOT) {
@@ -351,6 +403,9 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
         if (tb(btnCoin,Tool::Coin,"Coin"))          return true;
         if (tb(btnEnemy,Tool::Enemy,"Enemy"))        return true;
         if (tb(btnTile,Tool::Tile,"Tile"))           return true;
+        if (tb(btnResize,Tool::Resize,"Resize"))     { mIsResizing=false; mHoverEdge=ResizeEdge::None; mHoverTileIdx=-1; return true; }
+        if (tb(btnProp,Tool::Prop,"Prop"))           return true;
+        if (tb(btnLadder,Tool::Ladder,"Ladder"))      return true;
         if (tb(btnErase,Tool::Erase,"Erase"))        return true;
         if (tb(btnPlayerStart,Tool::PlayerStart,"Player")) return true;
 
@@ -378,6 +433,16 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
             std::string path="levels/"+mLevelName+".json";
             mLevel.name=mLevelName; SaveLevel(mLevel,path); mLaunchGame=true; return true;
         }
+        if (HitTest(btnGravity,mx,my)) {
+            mLevel.gravityMode = (mLevel.gravityMode == GravityMode::Platformer)
+                ? GravityMode::WallRun : GravityMode::Platformer;
+            bool isWall = (mLevel.gravityMode == GravityMode::WallRun);
+            std::string gLbl = isWall ? "Gravity:\nWallRun" : "Gravity:\nPlatform";
+            auto [gx,gy] = Text::CenterInRect(gLbl, 11, btnGravity);
+            lblGravity = std::make_unique<Text>(gLbl, SDL_Color{0,0,0,255}, gx, gy, 11);
+            SetStatus(isWall ? "Gravity: Wall-Run mode" : "Gravity: Platformer mode");
+            return true;
+        }
 
         // ── Palette panel ──────────────────────────────────────────────────────
         if (mx >= CanvasW() && my >= TOOLBAR_H + TAB_H) {
@@ -404,10 +469,12 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                 const auto& item = mPaletteItems[idx];
 
                 if (item.isFolder) {
-                    // Single click on folder: navigate (no double-click required —
-                    // faster UX). "◀ Back" uses parent path stored in item.path.
-                    LoadTileView(item.path);
-                    SetStatus("Opened: " + fs::path(item.path).filename().string());
+                    // Copy the path BEFORE calling LoadTileView — LoadTileView clears
+                    // and rebuilds mPaletteItems, which invalidates the 'item' reference.
+                    std::string folderPath = item.path;
+                    std::string folderName = fs::path(folderPath).filename().string();
+                    LoadTileView(folderPath);
+                    SetStatus("Opened: " + folderName);
                 } else {
                     // ── Double-click detection ────────────────────────────────
                     Uint64 now = SDL_GetTicks();
@@ -462,6 +529,44 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
             }
             case Tool::PlayerStart:
                 mLevel.player={(float)sx,(float)sy}; SetStatus("Player start set"); break;
+            case Tool::Prop: {
+                int ti = HitTile(mx, my);
+                if (ti >= 0) {
+                    bool nowProp = !mLevel.tiles[ti].prop;
+                    mLevel.tiles[ti].prop = nowProp;
+                    // Prop and Ladder are mutually exclusive
+                    if (nowProp) mLevel.tiles[ti].ladder = false;
+                    SetStatus(std::string("Tile ") + std::to_string(ti) +
+                              (nowProp ? " → prop (no collision)" : " → solid (collision on)"));
+                }
+                return true;
+            }
+            case Tool::Ladder: {
+                int ti = HitTile(mx, my);
+                if (ti >= 0) {
+                    bool nowLadder = !mLevel.tiles[ti].ladder;
+                    mLevel.tiles[ti].ladder = nowLadder;
+                    // Ladder and Prop are mutually exclusive
+                    if (nowLadder) mLevel.tiles[ti].prop = false;
+                    SetStatus(std::string("Tile ") + std::to_string(ti) +
+                              (nowLadder ? " → ladder (climbable)" : " → solid (ladder removed)"));
+                }
+                return true;
+            }
+            case Tool::Resize:
+                // Mouse-down on a resize handle starts the drag
+                if (mHoverTileIdx >= 0 && mHoverEdge != ResizeEdge::None) {
+                    mIsResizing    = true;
+                    mResizeTileIdx = mHoverTileIdx;
+                    mResizeEdge    = mHoverEdge;
+                    mResizeDragX   = mx;
+                    mResizeDragY   = my;
+                    mResizeOrigW   = mLevel.tiles[mHoverTileIdx].w;
+                    mResizeOrigH   = mLevel.tiles[mHoverTileIdx].h;
+                    SetStatus("Resizing tile "+std::to_string(mHoverTileIdx));
+                    return true;
+                }
+                break;
         }
 
         // Start drag for canvas entities
@@ -472,11 +577,51 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
         }
     }
 
-    if (e.type == SDL_EVENT_MOUSE_BUTTON_UP) mIsDragging = false;
+    if (e.type == SDL_EVENT_MOUSE_BUTTON_UP) {
+        mIsDragging = false;
+        if (mIsResizing) {
+            mIsResizing    = false;
+            mResizeTileIdx = -1;
+            SetStatus("Resize committed");
+        }
+    }
 
-    if (e.type == SDL_EVENT_MOUSE_MOTION && mIsDragging && mDragIndex >= 0) {
+    if (e.type == SDL_EVENT_MOUSE_MOTION) {
         int mx=(int)e.motion.x, my=(int)e.motion.y;
-        if (my >= TOOLBAR_H && mx < CanvasW()) {
+
+        // ── Resize drag ───────────────────────────────────────────────────────
+        if (mIsResizing && mResizeTileIdx >= 0 && mResizeTileIdx < (int)mLevel.tiles.size()) {
+            auto& t = mLevel.tiles[mResizeTileIdx];
+            int dx = mx - mResizeDragX;
+            int dy = my - mResizeDragY;
+            if (mResizeEdge == ResizeEdge::Right || mResizeEdge == ResizeEdge::Corner) {
+                int newW = std::max(GRID, ((mResizeOrigW + dx + GRID/2) / GRID) * GRID);
+                t.w = newW;
+            }
+            if (mResizeEdge == ResizeEdge::Bottom || mResizeEdge == ResizeEdge::Corner) {
+                int newH = std::max(GRID, ((mResizeOrigH + dy + GRID/2) / GRID) * GRID);
+                t.h = newH;
+            }
+            SetStatus("Resize: "+std::to_string(t.w)+"x"+std::to_string(t.h));
+            return true;
+        }
+
+        // ── Resize hover detection ────────────────────────────────────────────
+        if (mActiveTool == Tool::Resize && my >= TOOLBAR_H && mx < CanvasW()) {
+            mHoverEdge    = ResizeEdge::None;
+            mHoverTileIdx = -1;
+            for (int i = 0; i < (int)mLevel.tiles.size(); i++) {
+                ResizeEdge edge = DetectResizeEdge(i, mx, my);
+                if (edge != ResizeEdge::None) {
+                    mHoverEdge    = edge;
+                    mHoverTileIdx = i;
+                    break;
+                }
+            }
+        }
+
+        // ── Entity drag ───────────────────────────────────────────────────────
+        if (mIsDragging && mDragIndex >= 0 && my >= TOOLBAR_H && mx < CanvasW()) {
             auto [sx,sy] = SnapToGrid(mx,my);
             if (mDragIsTile  && mDragIndex<(int)mLevel.tiles.size())  { mLevel.tiles[mDragIndex].x=(float)sx; mLevel.tiles[mDragIndex].y=(float)sy; }
             else if (mDragIsCoin && mDragIndex<(int)mLevel.coins.size()) { mLevel.coins[mDragIndex].x=(float)sx; mLevel.coins[mDragIndex].y=(float)sy; }
@@ -502,14 +647,39 @@ void LevelEditorScene::Render(Window& window) {
     for (int y=TOOLBAR_H;y<window.GetHeight();y+=GRID) { SDL_Rect l={0,y,cw,1}; SDL_FillSurfaceRect(screen,&l,gridCol); }
 
     // Placed tiles
-    for (const auto& t : mLevel.tiles) {
+    for (int ti = 0; ti < (int)mLevel.tiles.size(); ti++) {
+        const auto& t = mLevel.tiles[ti];
         SDL_Surface* ts = nullptr;
         for (const auto& item : mPaletteItems)
             if (item.path == t.imagePath) { ts = item.full ? item.full : item.thumb; break; }
         SDL_Rect dst={(int)t.x,(int)t.y,t.w,t.h};
-        if (ts) SDL_BlitSurfaceScaled(ts,nullptr,screen,&dst,SDL_SCALEMODE_LINEAR);
-        else { SDL_Surface* l=IMG_Load(t.imagePath.c_str()); if(l){SDL_BlitSurfaceScaled(l,nullptr,screen,&dst,SDL_SCALEMODE_LINEAR);SDL_DestroySurface(l);}else DrawRect(screen,dst,{80,80,120,200}); }
-        DrawOutline(screen,dst,{100,180,255,255});
+        if (ts) {
+            if (t.prop)   SDL_SetSurfaceColorMod(ts, 120, 255, 120); // green tint
+            if (t.ladder) SDL_SetSurfaceColorMod(ts, 120, 220, 255); // cyan tint
+            SDL_BlitSurfaceScaled(ts,nullptr,screen,&dst,SDL_SCALEMODE_LINEAR);
+            if (t.prop || t.ladder) SDL_SetSurfaceColorMod(ts, 255, 255, 255); // reset
+        } else {
+            SDL_Surface* l=IMG_Load(t.imagePath.c_str());
+            if(l){SDL_BlitSurfaceScaled(l,nullptr,screen,&dst,SDL_SCALEMODE_LINEAR);SDL_DestroySurface(l);}
+            else DrawRect(screen,dst,{80,80,120,200});
+        }
+        // Outline colour: cyan for ladder, green for prop, blue for solid
+        SDL_Color outlineCol = t.ladder ? SDL_Color{0,220,220,255}
+                             : t.prop   ? SDL_Color{80,255,80,255}
+                                        : SDL_Color{100,180,255,255};
+        DrawOutline(screen,dst,outlineCol);
+        // Prop badge
+        if (t.prop) {
+            DrawRect(screen,{(int)t.x+2,(int)t.y+2,14,14},{0,180,0,200});
+            Text propBadge("P",SDL_Color{255,255,255,255},(int)t.x+4,(int)t.y+2,10);
+            propBadge.Render(screen);
+        }
+        // Ladder badge
+        if (t.ladder) {
+            DrawRect(screen,{(int)t.x+2,(int)t.y+2,14,14},{0,160,180,200});
+            Text ladderBadge("L",SDL_Color{255,255,255,255},(int)t.x+4,(int)t.y+2,10);
+            ladderBadge.Render(screen);
+        }
     }
 
     // Coins, enemies, player marker
@@ -521,6 +691,35 @@ void LevelEditorScene::Render(Window& window) {
         for (const auto& en:mLevel.enemies){SDL_Rect s=slimeFrames[0],d={(int)en.x,(int)en.y,ICON_SIZE,ICON_SIZE};SDL_BlitSurfaceScaled(enemySheet->GetSurface(),&s,screen,&d,SDL_SCALEMODE_LINEAR);DrawOutline(screen,d,{255,80,80,255});}
     DrawRect(screen,{(int)mLevel.player.x,(int)mLevel.player.y,32,20},{0,200,80,180});
     DrawOutline(screen,{(int)mLevel.player.x,(int)mLevel.player.y,32,20},{0,255,100,255},2);
+
+    // ── Resize tool feedback ─────────────────────────────────────────────────
+    if (mActiveTool == Tool::Resize) {
+        const SDL_Color handleCol  = {255, 180, 0, 220};
+        const SDL_Color dragCol    = {255, 220, 80, 180};
+        const int HS = RESIZE_HANDLE;
+
+        // Highlight hovered edge/corner
+        if (mHoverTileIdx >= 0 && !mIsResizing) {
+            const auto& t = mLevel.tiles[mHoverTileIdx];
+            int rx=(int)t.x, ry=(int)t.y, rw=t.w, rh=t.h;
+            if (mHoverEdge==ResizeEdge::Right || mHoverEdge==ResizeEdge::Corner)
+                DrawRect(screen,{rx+rw-HS, ry+HS, HS, rh-HS*2}, handleCol);
+            if (mHoverEdge==ResizeEdge::Bottom || mHoverEdge==ResizeEdge::Corner)
+                DrawRect(screen,{rx+HS, ry+rh-HS, rw-HS*2, HS}, handleCol);
+            if (mHoverEdge==ResizeEdge::Corner)
+                DrawRect(screen,{rx+rw-HS, ry+rh-HS, HS, HS}, handleCol);
+        }
+
+        // Ghost outline while dragging
+        if (mIsResizing && mResizeTileIdx >= 0 && mResizeTileIdx < (int)mLevel.tiles.size()) {
+            const auto& t = mLevel.tiles[mResizeTileIdx];
+            DrawOutline(screen,{(int)t.x,(int)t.y,t.w,t.h},{255,220,80,255},2);
+            // Size label
+            Text szT(std::to_string(t.w/GRID)+"x"+std::to_string(t.h/GRID)+" tiles",
+                     dragCol,(int)t.x+4,(int)t.y+4,12);
+            szT.Render(screen);
+        }
+    }
 
     // Tile ghost
     if (mActiveTool==Tool::Tile && !mPaletteItems.empty() && !mPaletteItems[mSelectedTile].isFolder) {
@@ -537,12 +736,22 @@ void LevelEditorScene::Render(Window& window) {
     drawBtn(btnCoin,       {55,55,65,255},{180,180,180,255},lblCoin.get(),   mActiveTool==Tool::Coin);
     drawBtn(btnEnemy,      {55,55,65,255},{180,180,180,255},lblEnemy.get(),  mActiveTool==Tool::Enemy);
     drawBtn(btnTile,       {55,55,65,255},{180,180,180,255},lblTile.get(),   mActiveTool==Tool::Tile);
-    drawBtn(btnErase,      {55,55,65,255},{180,180,180,255},lblErase.get(),  mActiveTool==Tool::Erase);
+    drawBtn(btnResize,     {55,55,65,255},{180,180,180,255},lblResize.get(), mActiveTool==Tool::Resize);
+    drawBtn(btnProp,       {30,80,30,255},  {80,200,80,255},   lblProp.get(),   mActiveTool==Tool::Prop);
+    drawBtn(btnLadder,     {20,100,120,255},{60,200,220,255},  lblLadder.get(), mActiveTool==Tool::Ladder);
+    drawBtn(btnErase,      {55,55,65,255},  {180,180,180,255}, lblErase.get(),  mActiveTool==Tool::Erase);
     drawBtn(btnPlayerStart,{55,55,65,255},{180,180,180,255},lblPlayer.get(), mActiveTool==Tool::PlayerStart);
     drawBtn(btnSave,  {40,110,40,255},{120,230,120,255},lblSave.get(),  false);
     drawBtn(btnLoad,  {40,70,120,255},{120,160,230,255},lblLoad.get(),  false);
     drawBtn(btnClear, {110,40,40,255},{230,100,100,255},lblClear.get(), false);
     drawBtn(btnPlay,  {40,140,40,255},{80,230,80,255}, lblPlay.get(),   false);
+    // Gravity toggle — blue tint for wallrun, dark for platformer
+    {
+        bool isWall = (mLevel.gravityMode == GravityMode::WallRun);
+        SDL_Color bg  = isWall ? SDL_Color{30,60,160,255} : SDL_Color{55,55,65,255};
+        SDL_Color bdr = isWall ? SDL_Color{80,140,255,255} : SDL_Color{140,140,160,255};
+        drawBtn(btnGravity, bg, bdr, lblGravity.get(), false);
+    }
     DrawRect(screen,{0,TOOLBAR_H,cw,22},{18,18,26,220});
     if(lblStatus)lblStatus->Render(screen);
     if(lblTool)lblTool->Render(screen);
@@ -691,7 +900,7 @@ void LevelEditorScene::Render(Window& window) {
     // ── Bottom hint bar ────────────────────────────────────────────────────────
     Text cntT(std::to_string(mLevel.coins.size())+"c  "+std::to_string(mLevel.enemies.size())+"e  "+std::to_string(mLevel.tiles.size())+"t",SDL_Color{160,160,160,255},6,window.GetHeight()-22,12);
     cntT.Render(screen);
-    Text hintT("1-5:Tools 6:BG  I:Import  Ctrl+S:Save  Ctrl+Z:Undo  Esc:FolderUp  Wheel:TileSize",SDL_Color{100,100,100,255},150,window.GetHeight()-22,11);
+    Text hintT("1-5:Tools 6:BG 7:Resize 8:Prop 9:Ladder G:Gravity  I:Import  Ctrl+S:Save  Ctrl+Z:Undo  Esc:FolderUp",SDL_Color{100,100,100,255},150,window.GetHeight()-22,11);
     hintT.Render(screen);
 
     // ── Import input bar ──────────────────────────────────────────────────────
@@ -728,7 +937,7 @@ void LevelEditorScene::Render(Window& window) {
 
 // ─── NextScene ────────────────────────────────────────────────────────────────
 std::unique_ptr<Scene> LevelEditorScene::NextScene() {
-    if (mLaunchGame) { mLaunchGame=false; return std::make_unique<GameScene>("levels/"+mLevelName+".json"); }
+    if (mLaunchGame) { mLaunchGame=false; return std::make_unique<GameScene>("levels/"+mLevelName+".json", true); }
     return nullptr;
 }
 

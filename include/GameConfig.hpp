@@ -39,6 +39,7 @@ inline constexpr float GRAVITY_FORCE    = 800.0f;  // pixels / sec²
 inline constexpr float JUMP_FORCE       = 450.0f;  // pixels / sec  (upward impulse)
 inline constexpr float MAX_FALL_SPEED   = 1000.0f; // terminal velocity
 inline constexpr float PLAYER_SPEED     = 300.0f;  // lateral pixels / sec
+inline constexpr float CLIMB_SPEED      =  80.0f;  // ladder climb pixels / sec
 
 // ── World / spawn counts ──────────────────────────────────────────────────────
 inline constexpr int GRAVITYSLUGSCOUNT = 20;

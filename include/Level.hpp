@@ -17,12 +17,17 @@ struct TileSpawn {
     float       x, y;
     int         w, h;
     std::string imagePath;
+    bool prop   = false; // rendered, no collision — background decoration
+    bool ladder = false; // rendered, no solid collision — player can climb with W
 };
 
+enum class GravityMode { Platformer, WallRun };
+
 struct Level {
-    std::string             name       = "Untitled";
-    std::string             background = "game_assets/backgrounds/deepspace_scene.png";
-    PlayerSpawn             player     = {0.0f, 0.0f};
+    std::string             name        = "Untitled";
+    std::string             background  = "game_assets/backgrounds/deepspace_scene.png";
+    GravityMode             gravityMode = GravityMode::Platformer;
+    PlayerSpawn             player      = {0.0f, 0.0f};
     std::vector<CoinSpawn>  coins;
     std::vector<EnemySpawn> enemies;
     std::vector<TileSpawn>  tiles;

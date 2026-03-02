@@ -2,6 +2,7 @@
     "background": "game_assets/backgrounds/deepspace_scene.png",
     "coins": [],
     "enemies": [],
+    "gravityMode": "platformer",
     "name": "level1",
     "player": {
         "x": 614.0,
@@ -11,6 +12,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassMid.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1480.0,
             "y": 1500.0
@@ -18,6 +21,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassMid.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1520.0,
             "y": 1500.0
@@ -25,6 +30,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassMid.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1560.0,
             "y": 1500.0
@@ -32,6 +39,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassMid.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1600.0,
             "y": 1500.0
@@ -39,6 +48,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassMid.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1640.0,
             "y": 1500.0
@@ -46,6 +57,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassMid.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1680.0,
             "y": 1500.0
@@ -53,6 +66,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassMid.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1720.0,
             "y": 1500.0
@@ -60,6 +75,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassMid.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1760.0,
             "y": 1500.0
@@ -67,6 +84,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassMid.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1800.0,
             "y": 1500.0
@@ -74,6 +93,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassMid.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1840.0,
             "y": 1500.0
@@ -81,6 +102,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassMid.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1880.0,
             "y": 1500.0
@@ -88,6 +111,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassMid.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1920.0,
             "y": 1500.0
@@ -95,6 +120,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1480.0,
             "y": 1540.0
@@ -102,6 +129,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1520.0,
             "y": 1540.0
@@ -109,6 +138,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1560.0,
             "y": 1540.0
@@ -116,6 +147,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1600.0,
             "y": 1540.0
@@ -123,6 +156,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1640.0,
             "y": 1540.0
@@ -130,6 +165,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1680.0,
             "y": 1540.0
@@ -137,6 +174,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1720.0,
             "y": 1540.0
@@ -144,6 +183,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1760.0,
             "y": 1540.0
@@ -151,6 +192,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1840.0,
             "y": 1540.0
@@ -158,6 +201,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1760.0,
             "y": 1540.0
@@ -165,6 +210,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1920.0,
             "y": 1540.0
@@ -172,6 +219,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1880.0,
             "y": 1540.0
@@ -179,6 +228,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1800.0,
             "y": 1540.0
@@ -186,6 +237,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1480.0,
             "y": 1580.0
@@ -193,6 +246,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1520.0,
             "y": 1580.0
@@ -200,6 +255,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1560.0,
             "y": 1580.0
@@ -207,6 +264,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1600.0,
             "y": 1580.0
@@ -214,6 +273,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1640.0,
             "y": 1580.0
@@ -221,6 +282,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1680.0,
             "y": 1580.0
@@ -228,6 +291,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1720.0,
             "y": 1580.0
@@ -235,6 +300,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1760.0,
             "y": 1540.0
@@ -242,6 +309,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1760.0,
             "y": 1580.0
@@ -249,6 +318,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1800.0,
             "y": 1580.0
@@ -256,6 +327,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1840.0,
             "y": 1580.0
@@ -263,6 +336,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1880.0,
             "y": 1580.0
@@ -270,6 +345,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1920.0,
             "y": 1580.0
@@ -277,6 +354,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassCliffLeft.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1440.0,
             "y": 1500.0
@@ -284,6 +363,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/liquidWaterTop.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1440.0,
             "y": 1540.0
@@ -291,6 +372,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/liquidWater.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1440.0,
             "y": 1580.0
@@ -298,6 +381,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/liquidWater.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1400.0,
             "y": 1580.0
@@ -305,6 +390,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/liquidWater.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1360.0,
             "y": 1580.0
@@ -312,6 +399,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/liquidWater.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1320.0,
             "y": 1580.0
@@ -319,6 +408,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/liquidWater.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1280.0,
             "y": 1580.0
@@ -326,6 +417,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/liquidWaterTop_mid.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1400.0,
             "y": 1540.0
@@ -333,6 +426,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/liquidWaterTop.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1360.0,
             "y": 1540.0
@@ -340,6 +435,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/liquidWaterTop_mid.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1320.0,
             "y": 1540.0
@@ -347,6 +444,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/liquidWaterTop_mid.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1280.0,
             "y": 1540.0
@@ -354,6 +453,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/sandCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1200.0,
             "y": 1540.0
@@ -361,6 +462,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/liquidWaterTop_mid.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1240.0,
             "y": 1580.0
@@ -368,6 +471,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/ladder_mid.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1240.0,
             "y": 1580.0
@@ -375,6 +480,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/ladder_mid.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1240.0,
             "y": 1580.0
@@ -382,6 +489,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/sandCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1200.0,
             "y": 1580.0
@@ -389,6 +498,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/sandCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1160.0,
             "y": 1580.0
@@ -396,6 +507,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/sandCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1120.0,
             "y": 1580.0
@@ -403,6 +516,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/sandCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1080.0,
             "y": 1580.0
@@ -410,6 +525,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/sandCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1040.0,
             "y": 1580.0
@@ -417,6 +534,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/sandCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1000.0,
             "y": 1540.0
@@ -424,6 +543,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/sandCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1000.0,
             "y": 1580.0
@@ -431,6 +552,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/sandCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1040.0,
             "y": 1540.0
@@ -438,6 +561,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/sandCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1080.0,
             "y": 1540.0
@@ -445,6 +570,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/sandCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1120.0,
             "y": 1540.0
@@ -452,6 +579,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/sandCenter.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1160.0,
             "y": 1540.0
@@ -459,6 +588,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassMid.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1200.0,
             "y": 1540.0
@@ -466,6 +597,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassMid.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1160.0,
             "y": 1540.0
@@ -473,6 +606,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassMid.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1120.0,
             "y": 1540.0
@@ -480,6 +615,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassMid.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1080.0,
             "y": 1540.0
@@ -487,6 +624,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassMid.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1040.0,
             "y": 1540.0
@@ -494,6 +633,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/grassMid.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1000.0,
             "y": 1540.0
@@ -501,6 +642,8 @@
         {
             "h": 40,
             "img": "game_assets/tiles/ladder_mid.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1240.0,
             "y": 1540.0
@@ -508,9 +651,308 @@
         {
             "h": 40,
             "img": "game_assets/tiles/ropeAttached.png",
+            "ladder": false,
+            "prop": false,
             "w": 40,
             "x": 1880.0,
             "y": 1460.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/forest-tiles/ground-03.png",
+            "ladder": false,
+            "prop": false,
+            "w": 64,
+            "x": 768.0,
+            "y": 1020.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/forest-tiles/ground-03.png",
+            "ladder": false,
+            "prop": false,
+            "w": 64,
+            "x": 832.0,
+            "y": 1020.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/forest-tiles/ground-03.png",
+            "ladder": false,
+            "prop": false,
+            "w": 64,
+            "x": 896.0,
+            "y": 1020.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/forest-tiles/ground-03.png",
+            "ladder": false,
+            "prop": false,
+            "w": 64,
+            "x": 960.0,
+            "y": 1020.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/forest-tiles/ground-03.png",
+            "ladder": false,
+            "prop": false,
+            "w": 64,
+            "x": 1024.0,
+            "y": 1020.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/forest-tiles/ground-03.png",
+            "ladder": false,
+            "prop": false,
+            "w": 64,
+            "x": 1088.0,
+            "y": 1020.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/forest-tiles/ground-03.png",
+            "ladder": false,
+            "prop": false,
+            "w": 64,
+            "x": 1152.0,
+            "y": 1020.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/forest-tiles/ground-03.png",
+            "ladder": false,
+            "prop": false,
+            "w": 64,
+            "x": 1216.0,
+            "y": 1020.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/forest-tiles/ground-02.png",
+            "ladder": false,
+            "prop": false,
+            "w": 64,
+            "x": 768.0,
+            "y": 956.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/forest-tiles/ground-02.png",
+            "ladder": false,
+            "prop": false,
+            "w": 64,
+            "x": 832.0,
+            "y": 956.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/forest-tiles/ground-02.png",
+            "ladder": false,
+            "prop": false,
+            "w": 64,
+            "x": 896.0,
+            "y": 956.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/forest-tiles/ground-02.png",
+            "ladder": false,
+            "prop": false,
+            "w": 64,
+            "x": 960.0,
+            "y": 956.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/forest-tiles/ground-02.png",
+            "ladder": false,
+            "prop": false,
+            "w": 64,
+            "x": 1024.0,
+            "y": 956.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/forest-tiles/ground-02.png",
+            "ladder": false,
+            "prop": false,
+            "w": 64,
+            "x": 1088.0,
+            "y": 956.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/forest-tiles/ground-02.png",
+            "ladder": false,
+            "prop": false,
+            "w": 64,
+            "x": 1152.0,
+            "y": 956.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/Tiles_77.png",
+            "ladder": false,
+            "prop": false,
+            "w": 64,
+            "x": 768.0,
+            "y": 1020.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/Tiles_68.png",
+            "ladder": false,
+            "prop": false,
+            "w": 64,
+            "x": 832.0,
+            "y": 1020.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/Tiles_67.png",
+            "ladder": false,
+            "prop": false,
+            "w": 64,
+            "x": 832.0,
+            "y": 1020.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/Tiles_67.png",
+            "ladder": false,
+            "prop": false,
+            "w": 64,
+            "x": 896.0,
+            "y": 1020.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/Tiles_68.png",
+            "ladder": false,
+            "prop": false,
+            "w": 64,
+            "x": 960.0,
+            "y": 1020.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/Tiles_68.png",
+            "ladder": false,
+            "prop": false,
+            "w": 64,
+            "x": 960.0,
+            "y": 1020.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/Tiles_67.png",
+            "ladder": false,
+            "prop": false,
+            "w": 64,
+            "x": 1024.0,
+            "y": 1020.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/Tiles_67.png",
+            "ladder": false,
+            "prop": false,
+            "w": 64,
+            "x": 1216.0,
+            "y": 1020.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/Tiles_67.png",
+            "ladder": false,
+            "prop": false,
+            "w": 64,
+            "x": 1152.0,
+            "y": 1020.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/Tiles_77.png",
+            "ladder": false,
+            "prop": false,
+            "w": 64,
+            "x": 1152.0,
+            "y": 1020.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/forest-tiles/ground-02.png",
+            "ladder": false,
+            "prop": false,
+            "w": 64,
+            "x": 1216.0,
+            "y": 956.0
+        },
+        {
+            "h": 128,
+            "img": "game_assets/tiles/forest-tiles/bg-tree-01.png",
+            "ladder": false,
+            "prop": true,
+            "w": 128,
+            "x": 832.0,
+            "y": 828.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/forest-tiles/bg-tree-01.png",
+            "ladder": false,
+            "prop": true,
+            "w": 64,
+            "x": 960.0,
+            "y": 892.0
+        },
+        {
+            "h": 128,
+            "img": "game_assets/tiles/forest-tiles/bg-tree-04.png",
+            "ladder": false,
+            "prop": true,
+            "w": 128,
+            "x": 704.0,
+            "y": 828.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/forest-tiles/ground-03.png",
+            "ladder": false,
+            "prop": true,
+            "w": 64,
+            "x": 704.0,
+            "y": 1020.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/forest-tiles/ground-02.png",
+            "ladder": false,
+            "prop": true,
+            "w": 64,
+            "x": 704.0,
+            "y": 956.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/ladder_mid.png",
+            "ladder": true,
+            "prop": false,
+            "w": 64,
+            "x": 704.0,
+            "y": 1020.0
+        },
+        {
+            "h": 64,
+            "img": "game_assets/tiles/ladder_top.png",
+            "ladder": true,
+            "prop": false,
+            "w": 64,
+            "x": 704.0,
+            "y": 956.0
         }
     ]
 }

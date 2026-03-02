@@ -4,11 +4,12 @@
 
 // PLAYER_STAND_WIDTH / PLAYER_STAND_HEIGHT come from GameConfig via Components.hpp.
 
-inline void BoundsSystem(entt::registry& reg, float dt, int windowW, int windowH) {
+inline void BoundsSystem(entt::registry& reg, float dt, int windowW, int windowH,
+                         bool wallRunEnabled = false) {
     auto view = reg.view<Transform, Collider, GravityState, Velocity, AnimationState, PlayerTag>();
     view.each(
-        [dt, windowW, windowH](Transform& t, Collider& c, GravityState& g,
-                                Velocity& v, AnimationState& anim) {
+        [dt, windowW, windowH, wallRunEnabled](Transform& t, Collider& c, GravityState& g,
+                                               Velocity& v, AnimationState& anim) {
             // ── Punishment timer tick ─────────────────────────────────────────
             if (g.punishmentTimer > 0.0f) {
                 g.punishmentTimer -= dt;
@@ -41,31 +42,43 @@ inline void BoundsSystem(entt::registry& reg, float dt, int windowW, int windowH
                 v.dy         = 0.0f;
             };
 
-            // ── Wall-touch detection → gravity switch ─────────────────────────
-            if (t.x < 0.0f) {
-                t.x = 0.0f;
-                activate(GravityDir::LEFT);
-            }
-            {
-                bool  sw        = g.active && (g.direction == GravityDir::LEFT ||
-                                               g.direction == GravityDir::RIGHT);
-                float rightEdge = t.x + (sw ? c.h : c.w);
-                if (rightEdge > windowW) {
-                    t.x = static_cast<float>(windowW - (sw ? c.h : c.w));
-                    activate(GravityDir::RIGHT);
+            // ── Wall-touch detection → gravity switch (wallrun) or clamp (platformer) ──
+            if (wallRunEnabled) {
+                if (t.x < 0.0f) {
+                    t.x = 0.0f;
+                    activate(GravityDir::LEFT);
                 }
-            }
-            if (t.y < 0.0f) {
-                t.y = 0.0f;
-                activate(GravityDir::UP);
-            }
-            {
-                bool  sw         = g.active && (g.direction == GravityDir::LEFT ||
-                                                g.direction == GravityDir::RIGHT);
-                float bottomEdge = t.y + (sw ? c.w : c.h);
-                if (bottomEdge > windowH) {
-                    t.y = static_cast<float>(windowH - (sw ? c.w : c.h));
-                    activate(GravityDir::DOWN);
+                {
+                    bool  sw        = g.active && (g.direction == GravityDir::LEFT ||
+                                                   g.direction == GravityDir::RIGHT);
+                    float rightEdge = t.x + (sw ? c.h : c.w);
+                    if (rightEdge > windowW) {
+                        t.x = static_cast<float>(windowW - (sw ? c.h : c.w));
+                        activate(GravityDir::RIGHT);
+                    }
+                }
+                if (t.y < 0.0f) {
+                    t.y = 0.0f;
+                    activate(GravityDir::UP);
+                }
+                {
+                    bool  sw         = g.active && (g.direction == GravityDir::LEFT ||
+                                                    g.direction == GravityDir::RIGHT);
+                    float bottomEdge = t.y + (sw ? c.w : c.h);
+                    if (bottomEdge > windowH) {
+                        t.y = static_cast<float>(windowH - (sw ? c.w : c.h));
+                        activate(GravityDir::DOWN);
+                    }
+                }
+            } else {
+                // Platformer mode — hard clamp to screen edges, no gravity flip
+                if (t.x < 0.0f)                          t.x = 0.0f;
+                if (t.x + c.w > windowW)                 t.x = static_cast<float>(windowW - c.w);
+                if (t.y < 0.0f)                          t.y = 0.0f;
+                if (t.y + c.h > windowH) {
+                    t.y          = static_cast<float>(windowH - c.h);
+                    g.velocity   = 0.0f;
+                    g.isGrounded = true;
                 }
             }
 
