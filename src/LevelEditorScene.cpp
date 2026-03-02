@@ -32,13 +32,17 @@ static SDL_Surface* LoadPNG(const fs::path& p) {
 
 // ─── LoadTileView ──────────────────────────────────────────────────────────
 void LevelEditorScene::LoadTileView(const std::string& dir) {
-    // Free existing surface memory
+    // Free existing surface memory — folders use non-owning mFolderIcon pointer,
+    // so only free surfaces for file entries.
     for (auto& item : mPaletteItems) {
-        if (item.thumb) SDL_DestroySurface(item.thumb);
-        if (item.full)  SDL_DestroySurface(item.full);
+        if (!item.isFolder) {
+            if (item.thumb) SDL_DestroySurface(item.thumb);
+            if (item.full)  SDL_DestroySurface(item.full);
+        }
     }
     mPaletteItems.clear();
     mPaletteScroll = 0;
+    mSelectedTile  = 0;   // reset selection — old index may be out of bounds in new view
     mTileCurrentDir = dir;
 
     if (!fs::exists(dir)) return;
@@ -53,8 +57,8 @@ void LevelEditorScene::LoadTileView(const std::string& dir) {
         PaletteItem back;
         back.path     = dirPath.parent_path().string();
         back.label    = "◀ Back";
-        back.isFolder = true;   // reuse folder handling for navigation
-        back.thumb    = nullptr;
+        back.isFolder = true;
+        back.thumb    = mFolderIcon;  // non-owning
         back.full     = nullptr;
         mPaletteItems.push_back(std::move(back));
     }
@@ -78,24 +82,10 @@ void LevelEditorScene::LoadTileView(const std::string& dir) {
 
         PaletteItem item;
         item.path     = p.string();
-        item.label    = p.filename().string();
+        item.label    = p.filename().string() + " (" + std::to_string(count) + ")";
         item.isFolder = true;
-        item.thumb    = nullptr;
+        item.thumb    = mFolderIcon;  // non-owning pointer — shared, never freed per-item
         item.full     = nullptr;
-
-        // Try to use the first PNG inside as a mini-preview thumbnail
-        for (const auto& e : fs::directory_iterator(p)) {
-            if (e.path().extension() != ".png") continue;
-            SDL_Surface* f = LoadPNG(e.path());
-            if (f) {
-                item.thumb = MakeThumb(f, PAL_ICON, PAL_ICON);
-                SDL_DestroySurface(f);
-            }
-            break;
-        }
-
-        // Store PNG count in label suffix
-        item.label += " (" + std::to_string(count) + ")";
         mPaletteItems.push_back(std::move(item));
     }
 
@@ -182,6 +172,20 @@ void LevelEditorScene::Load(Window& window) {
         mLevel.player.y = static_cast<float>(window.GetHeight() - 60);
     }
 
+    // Load the generic folder icon once — shared by all folder palette cells.
+    // We keep it alive for the lifetime of the editor scene.
+    if (!mFolderIcon) {
+        SDL_Surface* raw = IMG_Load("game_assets/generic_folder.png");
+        if (raw) {
+            SDL_Surface* conv = SDL_ConvertSurface(raw, SDL_PIXELFORMAT_ARGB8888);
+            SDL_DestroySurface(raw);
+            if (conv) {
+                mFolderIcon = MakeThumb(conv, PAL_ICON, PAL_ICON);
+                SDL_DestroySurface(conv);
+            }
+        }
+    }
+
     LoadTileView(TILE_ROOT);
     LoadBgPalette();
 
@@ -208,10 +212,18 @@ void LevelEditorScene::Load(Window& window) {
 
 // ─── Unload ───────────────────────────────────────────────────────────────────
 void LevelEditorScene::Unload() {
-    for (auto& i : mPaletteItems) { if (i.thumb) SDL_DestroySurface(i.thumb); if (i.full) SDL_DestroySurface(i.full); }
+    // PaletteItems for folders point to mFolderIcon (non-owning), so don't free
+    // item.thumb for folder entries — only free file thumbnails.
+    for (auto& i : mPaletteItems) {
+        if (!i.isFolder) {
+            if (i.thumb) SDL_DestroySurface(i.thumb);
+            if (i.full)  SDL_DestroySurface(i.full);
+        }
+    }
     mPaletteItems.clear();
     for (auto& i : mBgItems) { if (i.thumb) SDL_DestroySurface(i.thumb); }
     mBgItems.clear();
+    if (mFolderIcon) { SDL_DestroySurface(mFolderIcon); mFolderIcon = nullptr; }
     mWindow = nullptr;
 }
 

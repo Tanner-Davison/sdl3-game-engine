@@ -101,6 +101,9 @@ class LevelEditorScene : public Scene {
     std::unique_ptr<Image>       background;
     std::unique_ptr<SpriteSheet> coinSheet;
     std::unique_ptr<SpriteSheet> enemySheet;
+    // Folder icon loaded once, used as thumb for every folder cell.
+    // PaletteItems point to this surface — they must NOT free it.
+    SDL_Surface*                 mFolderIcon = nullptr;
 
     // ── Toolbar buttons ───────────────────────────────────────────────────────
     SDL_Rect btnCoin{}, btnEnemy{}, btnErase{}, btnPlayerStart{};
