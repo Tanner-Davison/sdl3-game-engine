@@ -51,6 +51,11 @@ class LevelEditorScene : public Scene {
     int         mSelectedTile  = 0;       // index into mPaletteItems
     int         mTileW = GRID, mTileH = GRID; // current tile place size
 
+    // --- Drop state ---
+    // True between SDL_EVENT_DROP_BEGIN and SDL_EVENT_DROP_COMPLETE so we can
+    // draw a visual overlay while the user is hovering a file over the window.
+    bool mDropActive = false;
+
     Level mLevel;
 
     // --- Palette item ---
@@ -133,4 +138,9 @@ class LevelEditorScene : public Scene {
     }
 
     void LoadPalette();
+
+    // Copies the dropped PNG into game_assets/tiles/, loads it into the palette,
+    // auto-selects it, and switches to the Tile tool.
+    // Returns true if the import succeeded.
+    bool ImportDroppedTile(const std::string& srcPath);
 };

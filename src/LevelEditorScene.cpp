@@ -134,6 +134,27 @@ void LevelEditorScene::Unload() {
 bool LevelEditorScene::HandleEvent(SDL_Event& e) {
     if (e.type == SDL_EVENT_QUIT) return false;
 
+    // ── File drop ────────────────────────────────────────────────────────────
+    // SDL3 fires DROP_BEGIN when the drag enters the window, DROP_FILE for each
+    // file path, and DROP_COMPLETE when the user releases.
+    if (e.type == SDL_EVENT_DROP_BEGIN) {
+        mDropActive = true;
+        SetStatus("Drop a .png tile to import it...");
+        return true;
+    }
+    if (e.type == SDL_EVENT_DROP_COMPLETE) {
+        mDropActive = false;
+        return true;
+    }
+    if (e.type == SDL_EVENT_DROP_FILE) {
+        mDropActive = false;
+        std::string path = e.drop.data ? std::string(e.drop.data) : "";
+        if (!path.empty()) {
+            ImportDroppedTile(path);
+        }
+        return true;
+    }
+
     if (e.type == SDL_EVENT_MOUSE_WHEEL) {
         // Scroll palette or adjust tile size
         if (mActiveTool == Tool::Tile) {
@@ -484,6 +505,34 @@ void LevelEditorScene::Render(Window& window) {
                SDL_Color{100,100,100,255}, 150, window.GetHeight()-22, 11);
     hintT.Render(screen);
 
+    // ── Drop overlay ──────────────────────────────────────────────────────────
+    // Draw a full-screen semi-transparent highlight when a file drag is active
+    // so the user gets clear visual feedback that dropping is possible.
+    if (mDropActive) {
+        // Dark overlay over the entire canvas
+        DrawRect(screen, {0, TOOLBAR_H, cw, window.GetHeight() - TOOLBAR_H},
+                 {20, 80, 160, 80});
+        // Bright dashed border — rendered as four thick edge strips
+        constexpr int BORDER = 6;
+        SDL_Color borderCol = {80, 180, 255, 220};
+        DrawRect(screen, {0,          TOOLBAR_H,              cw,     BORDER},  borderCol);
+        DrawRect(screen, {0,          window.GetHeight()-BORDER, cw,   BORDER},  borderCol);
+        DrawRect(screen, {0,          TOOLBAR_H,              BORDER, window.GetHeight()-TOOLBAR_H}, borderCol);
+        DrawRect(screen, {cw - BORDER, TOOLBAR_H,             BORDER, window.GetHeight()-TOOLBAR_H}, borderCol);
+
+        // Centered instruction text
+        int cx2 = cw / 2;
+        int cy2 = window.GetHeight() / 2;
+        DrawRect(screen, {cx2-220, cy2-44, 440, 88}, {10, 30, 70, 220});
+        DrawOutline(screen, {cx2-220, cy2-44, 440, 88}, {80, 180, 255, 255}, 2);
+        Text dropLine1("Drop .png to import as tile",
+                       SDL_Color{255, 255, 255, 255}, cx2-168, cy2-32, 28);
+        Text dropLine2("Saved to game_assets/tiles/",
+                       SDL_Color{140, 200, 255, 255}, cx2-150, cy2+4,  18);
+        dropLine1.Render(screen);
+        dropLine2.Render(screen);
+    }
+
     window.Update();
 }
 
@@ -494,4 +543,82 @@ std::unique_ptr<Scene> LevelEditorScene::NextScene() {
         return std::make_unique<GameScene>("levels/" + mLevelName + ".json");
     }
     return nullptr;
+}
+
+// ─── ImportDroppedTile ────────────────────────────────────────────────────────
+bool LevelEditorScene::ImportDroppedTile(const std::string& srcPath) {
+    // Only accept PNG files
+    fs::path src(srcPath);
+    if (src.extension().string() != ".png" && src.extension().string() != ".PNG") {
+        SetStatus("Import failed: only .png files supported (got " + src.extension().string() + ")");
+        return false;
+    }
+
+    // Ensure the tiles directory exists
+    fs::path destDir("game_assets/tiles");
+    std::error_code ec;
+    fs::create_directories(destDir, ec);
+    if (ec) {
+        SetStatus("Import failed: couldn't create game_assets/tiles/");
+        return false;
+    }
+
+    // Build destination path — if a file with that name already exists, skip the copy
+    // so we don't clobber an existing tile. The user probably dropped the same file twice.
+    fs::path dest = destDir / src.filename();
+    if (!fs::exists(dest)) {
+        fs::copy_file(src, dest, ec);
+        if (ec) {
+            SetStatus("Import failed: " + ec.message());
+            return false;
+        }
+    }
+
+    // ── Load and add to the live palette without a full reload ────────────────
+    // We do this manually (rather than calling LoadPalette() which rescans all
+    // dirs) so that the rest of the palette keeps its scroll position and the
+    // new tile lands at the end of the list as expected.
+    SDL_Surface* raw = IMG_Load(dest.string().c_str());
+    if (!raw) {
+        SetStatus("Import failed: couldn't load " + dest.string());
+        return false;
+    }
+
+    SDL_Surface* converted = SDL_ConvertSurface(raw, SDL_PIXELFORMAT_ARGB8888);
+    SDL_DestroySurface(raw);
+    if (!converted) {
+        SetStatus("Import failed: surface conversion error");
+        return false;
+    }
+    SDL_SetSurfaceBlendMode(converted, SDL_BLENDMODE_BLEND);
+
+    // Pre-scaled thumbnail for the palette sidebar
+    SDL_Surface* thumb = SDL_CreateSurface(PAL_ICON, PAL_ICON, SDL_PIXELFORMAT_ARGB8888);
+    if (thumb) {
+        SDL_SetSurfaceBlendMode(thumb, SDL_BLENDMODE_NONE);
+        SDL_Rect tsrc = {0, 0, converted->w, converted->h};
+        SDL_Rect tdst = {0, 0, PAL_ICON, PAL_ICON};
+        SDL_BlitSurfaceScaled(converted, &tsrc, thumb, &tdst, SDL_SCALEMODE_LINEAR);
+        SDL_SetSurfaceBlendMode(thumb, SDL_BLENDMODE_BLEND);
+    }
+
+    PaletteItem item;
+    item.path  = dest.string();
+    item.label = dest.stem().string();
+    item.thumb = thumb;
+    item.full  = converted;
+    mPaletteItems.push_back(std::move(item));
+
+    // Auto-select the new tile and switch to the Tile tool so the user can
+    // immediately start placing it without any extra clicks.
+    mSelectedTile = (int)mPaletteItems.size() - 1;
+    mActiveTool   = Tool::Tile;
+    if (lblTool) lblTool->CreateSurface("Tool: Tile");
+
+    // Scroll the palette to show the newly added tile
+    int totalRows  = ((int)mPaletteItems.size() + PAL_COLS - 1) / PAL_COLS;
+    mPaletteScroll = std::max(0, totalRows - 1);
+
+    SetStatus("Imported: " + dest.filename().string() + " \u2192 auto-selected");
+    return true;
 }

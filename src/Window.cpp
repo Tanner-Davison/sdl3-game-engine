@@ -15,6 +15,7 @@ Window::Window() {
 
     SDLWindow.reset(Ptr);
 
+    // Note: SDL3 enables drop file events by default — no opt-in call needed.
     // Note: do not call SDL_CreateRenderer on this window.
     // SDL_GetWindowSurface and SDL_CreateRenderer are mutually exclusive on Mac.
     // This engine uses surface-based rendering throughout.
