@@ -26,77 +26,89 @@ class LevelEditorScene : public Scene {
     std::unique_ptr<Scene> NextScene() override;
 
   private:
-    enum class Tool        { Coin, Enemy, Erase, PlayerStart, Tile };
-    enum class PaletteTab  { Tiles, Backgrounds };
+    enum class Tool       { Coin, Enemy, Erase, PlayerStart, Tile };
+    enum class PaletteTab { Tiles, Backgrounds };
 
     // ── Constants ─────────────────────────────────────────────────────────────
-    static constexpr int   GRID       = 40;
-    static constexpr int   TOOLBAR_H  = 60;
-    static constexpr int   PALETTE_W  = 180;
-    static constexpr int   ICON_SIZE  = 40;
-    static constexpr int   PAL_ICON   = 76;
-    static constexpr int   PAL_COLS   = 2;
-    static constexpr int   TAB_H      = 28;   // height of the Tiles/Backgrounds tab bar
+    static constexpr int   GRID        = 40;
+    static constexpr int   TOOLBAR_H   = 60;
+    static constexpr int   PALETTE_W   = 180;
+    static constexpr int   ICON_SIZE   = 40;
+    static constexpr int   PAL_ICON    = 76;
+    static constexpr int   PAL_COLS    = 2;
+    static constexpr int   TAB_H       = 28;
     static constexpr float ENEMY_SPEED = 120.0f;
 
+    // Root directories — the palette never navigates above these
+    static constexpr const char* TILE_ROOT = "game_assets/tiles";
+    static constexpr const char* BG_ROOT   = "game_assets/backgrounds";
+
     // ── Editor state ──────────────────────────────────────────────────────────
-    Window*      mWindow       = nullptr;
-    Tool         mActiveTool   = Tool::Coin;
-    PaletteTab   mActiveTab    = PaletteTab::Tiles;
-    bool         mLaunchGame   = false;
-    bool         mIsDragging   = false;
-    int          mDragIndex    = -1;
-    bool         mDragIsCoin   = false;
-    bool         mDragIsTile   = false;
-    std::string  mStatusMsg    = "New level";
-    std::string  mLevelName    = "level1";
-    int          mPaletteScroll     = 0;
-    int          mBgPaletteScroll   = 0;
-    int          mSelectedTile      = 0;
-    int          mSelectedBg        = 0;       // index into mBgItems
-    int          mTileW = GRID, mTileH = GRID;
+    Window*     mWindow     = nullptr;
+    Tool        mActiveTool = Tool::Coin;
+    PaletteTab  mActiveTab  = PaletteTab::Tiles;
+    bool        mLaunchGame = false;
+    bool        mIsDragging = false;
+    int         mDragIndex  = -1;
+    bool        mDragIsCoin = false;
+    bool        mDragIsTile = false;
+    std::string mStatusMsg  = "New level";
+    std::string mLevelName  = "level1";
+    int         mPaletteScroll   = 0;
+    int         mBgPaletteScroll = 0;
+    int         mSelectedTile    = 0;
+    int         mSelectedBg      = 0;
+    int         mTileW = GRID, mTileH = GRID;
+
+    // ── Tile palette navigation ───────────────────────────────────────────────
+    // mTileCurrentDir is the directory we are currently browsing.
+    // Empty string means we're at TILE_ROOT.
+    // Navigating into a subfolder sets this to the full relative path.
+    std::string mTileCurrentDir;
 
     // ── Drop / import state ───────────────────────────────────────────────────
-    bool         mDropActive        = false;
-    bool         mImportInputActive = false;
-    std::string  mImportInputText;
+    bool        mDropActive        = false;
+    bool        mImportInputActive = false;
+    std::string mImportInputText;
+
+    // Double-click detection (palette items)
+    Uint64      mLastClickTime  = 0;
+    int         mLastClickIndex = -1;
+    static constexpr Uint64 DOUBLE_CLICK_MS = 400;
 
     Level mLevel;
 
-    // ── Palette item (tiles) ──────────────────────────────────────────────────
+    // ── Palette entry ─────────────────────────────────────────────────────────
+    // Used for both tile-files and tile-folders in the current view.
     struct PaletteItem {
-        std::string   path;
-        std::string   label;
-        SDL_Surface*  thumb = nullptr;  // PAL_ICON × PAL_ICON thumbnail
-        SDL_Surface*  full  = nullptr;  // full-res for placed tiles
+        std::string  path;              // full relative path to PNG or directory
+        std::string  label;             // display name (stem for files, dirname for folders)
+        SDL_Surface* thumb = nullptr;   // PAL_ICON×PAL_ICON for files; nullptr for folders
+        SDL_Surface* full  = nullptr;   // full-res for files; nullptr for folders
+        bool         isFolder = false;
     };
-    std::vector<PaletteItem> mPaletteItems;
+    std::vector<PaletteItem> mPaletteItems;  // current view (folders first, then files)
 
     // ── Background item ───────────────────────────────────────────────────────
     struct BgItem {
-        std::string   path;
-        std::string   label;
-        SDL_Surface*  thumb = nullptr;  // PAL_ICON × PAL_ICON thumbnail
+        std::string  path;
+        std::string  label;
+        SDL_Surface* thumb = nullptr;
     };
     std::vector<BgItem> mBgItems;
 
-    // ── Live preview surface for the selected background ──────────────────────
-    // Rebuilt whenever mSelectedBg changes so Render can blit it instantly
-    // without reloading from disk every frame.
-    std::unique_ptr<Image> mBgPreview;   // nullptr until a bg is selected
-
     // ── Assets ────────────────────────────────────────────────────────────────
-    std::unique_ptr<Image>       background;  // current editor canvas background
+    std::unique_ptr<Image>       background;
     std::unique_ptr<SpriteSheet> coinSheet;
     std::unique_ptr<SpriteSheet> enemySheet;
 
-    // ── Toolbar button rects ──────────────────────────────────────────────────
-    SDL_Rect btnCoin {}, btnEnemy {}, btnErase {}, btnPlayerStart {};
-    SDL_Rect btnTile {}, btnSave  {}, btnLoad  {}, btnPlay        {}, btnClear {};
+    // ── Toolbar buttons ───────────────────────────────────────────────────────
+    SDL_Rect btnCoin{}, btnEnemy{}, btnErase{}, btnPlayerStart{};
+    SDL_Rect btnTile{}, btnSave{},  btnLoad{},  btnPlay{},        btnClear{};
 
-    // ── Text labels ───────────────────────────────────────────────────────────
+    // ── Labels ────────────────────────────────────────────────────────────────
     std::unique_ptr<Text> lblCoin, lblEnemy, lblErase, lblPlayer;
-    std::unique_ptr<Text> lblTile, lblSave,  lblLoad,  lblPlay,   lblClear;
+    std::unique_ptr<Text> lblTile, lblSave,  lblLoad,  lblPlay,  lblClear;
     std::unique_ptr<Text> lblStatus, lblTool;
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -155,14 +167,22 @@ class LevelEditorScene : public Scene {
         for (auto& rr : rects) SDL_FillSurfaceRect(s, &rr, col);
     }
 
-    // Applies the currently selected background to the level and refreshes
-    // the editor canvas preview.
-    void ApplyBackground(int idx);
+    // ── Palette loading ───────────────────────────────────────────────────────
 
-    void LoadPalette();
+    // Rebuilds mPaletteItems from the given directory (relative path).
+    // Shows subfolders first (with a folder icon colour), then PNG files.
+    // If dir == TILE_ROOT the "◀ Back" row is not shown.
+    void LoadTileView(const std::string& dir);
+
     void LoadBgPalette();
 
-    // Imports a dropped/typed PNG. If activeTab == Backgrounds it goes to
-    // game_assets/backgrounds/, otherwise game_assets/tiles/.
-    bool ImportDroppedTile(const std::string& srcPath);
+    // Applies background[idx] as the level background and refreshes the canvas.
+    void ApplyBackground(int idx);
+
+    // ── Import ────────────────────────────────────────────────────────────────
+    // Accepts a file OR a directory path.
+    // File  → copies PNG into tiles/ or backgrounds/ (depending on active tab).
+    // Dir   → copies entire folder into tiles/<dirname>/, then navigates into it.
+    // Both routes add items live without a full palette reload.
+    bool ImportPath(const std::string& srcPath);
 };
