@@ -38,7 +38,9 @@ set(SOURCES
     src/GameScene.cpp
     src/LevelTwo.cpp
     src/LevelEditorScene.cpp
+    src/EditorFileOps.cpp
     src/EditorPalette.cpp
+    src/EditorPopups.cpp
     src/EditorSurfaceCache.cpp
     src/EditorCanvasRenderer.cpp
     src/EditorToolbar.cpp

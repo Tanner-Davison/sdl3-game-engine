@@ -1,6 +1,8 @@
 #include "LevelEditorScene.hpp"
 #include "AnimatedTile.hpp"
 #include "EditorCanvasRenderer.hpp"
+#include "EditorFileOps.hpp"
+#include "EditorPopups.hpp"
 #include "EditorUIRenderer.hpp"
 #include "GameScene.hpp"
 #include "SurfaceUtils.hpp"
@@ -20,33 +22,54 @@ static SDL_Surface* LoadPNG(const fs::path& p) {
     return EditorSurfaceCache::LoadPNG(p);
 }
 
-// --- OpenAnimPicker / CloseAnimPicker --------------------------------------
-void LevelEditorScene::OpenAnimPicker(int tileIdx) {
-    mActionAnimPickerTile = tileIdx;
-    mAnimPickerEntries.clear();
-
-    // "None" entry first — always available to clear any existing assignment
-    mAnimPickerEntries.push_back({"", "None (no death anim)", nullptr});
-
-    // Scan animated_tiles/ for all .json manifests
-    auto manifests = ScanAnimatedTiles();
-    for (const auto& p : manifests) {
-        AnimatedTileDef def;
-        if (!LoadAnimatedTileDef(p.string(), def))
-            continue;
-        SDL_Surface* thumb =
-            mSurfaceCache.GetDestroyAnimThumb(p.string()); // builds & caches 48x48
-        mAnimPickerEntries.push_back({p.string(), def.name, thumb});
-    }
-
-    // Layout: popup centred horizontally over the tile, above or below depending on space.
-    // We don't know window size here, so defer rect computation to Render.
-    // Just mark as open — Render computes mActionAnimPickerRect each frame.
+// --- MakePopupCtx ----------------------------------------------------------
+EditorPopups::Ctx LevelEditorScene::MakePopupCtx() {
+    return EditorPopups::Ctx{
+        .level           = mLevel,
+        .palette         = mPalette,
+        .setStatus       = [this](const std::string& msg) { SetStatus(msg); },
+        .refreshTileView = [this]() { LoadTileView(mPalette.CurrentDir()); },
+        .refreshBgPalette= [this]() { LoadBgPalette(); },
+        .importPath      = [this](const std::string& p) { return ImportPath(p); },
+        .getAnimThumb    = [this](const std::string& p) {
+            return mSurfaceCache.GetDestroyAnimThumb(p);
+        },
+        .sdlWindow       = mWindow ? mWindow->GetRaw() : nullptr,
+        .tileRoot        = TILE_ROOT,
+        .bgRoot          = BG_ROOT,
+    };
 }
 
+// --- ImportPath (delegate to EditorFileOps) --------------------------------
+bool LevelEditorScene::ImportPath(const std::string& srcPath) {
+    EditorFileOps::Ctx ctx{
+        .palette          = mPalette,
+        .cache            = mSurfaceCache,
+        .level            = mLevel,
+        .setStatus        = [this](const std::string& msg) { SetStatus(msg); },
+        .refreshTileView  = [this]() { LoadTileView(mPalette.CurrentDir()); },
+        .refreshBgPalette = [this]() { LoadBgPalette(); },
+        .applyBackground  = [this](int idx) { ApplyBackground(idx); },
+        .switchToTileTool = [this]() {
+            SwitchTool(ToolId::Tile);
+            if (lblTool) lblTool->CreateSurface("Tile");
+        },
+        .palIcon  = PAL_ICON,
+        .palCols  = PAL_COLS,
+        .palW     = PALETTE_W,
+        .tileRoot = TILE_ROOT,
+        .bgRoot   = BG_ROOT,
+    };
+    return EditorFileOps::ImportPath(srcPath, ctx);
+}
+
+// --- OpenAnimPicker / CloseAnimPicker (shims into mPopups) ----------------
+void LevelEditorScene::OpenAnimPicker(int tileIdx) {
+    auto ctx = MakePopupCtx();
+    mPopups.OpenAnimPicker(tileIdx, ctx);
+}
 void LevelEditorScene::CloseAnimPicker() {
-    mActionAnimPickerTile = -1;
-    mAnimPickerEntries.clear();
+    mPopups.CloseAnimPicker();
 }
 
 // --- GetPowerUpRegistry ----------------------------------------------------
@@ -56,8 +79,8 @@ void LevelEditorScene::CloseAnimPicker() {
 //   2. Add a PowerUpType enum value in Components.hpp
 //   3. Handle the id string in GameScene::Spawn() -> PowerUpTag
 //   4. Handle the PowerUpType in MovementSystem / GameScene::Update
-const std::vector<LevelEditorScene::PowerUpEntry>& LevelEditorScene::GetPowerUpRegistry() {
-    static const std::vector<PowerUpEntry> kRegistry = {
+const std::vector<EditorPopups::PowerUpEntry>& LevelEditorScene::GetPowerUpRegistry() {
+    static const std::vector<EditorPopups::PowerUpEntry> kRegistry = {
         {"antigravity", "Anti-Gravity (15s)", 15.0f},
         // Add future power-ups here:
         // {"speedboost",  "Speed Boost (10s)",  10.0f},
@@ -171,6 +194,10 @@ void LevelEditorScene::Load(Window& window) {
     lblTool = std::make_unique<Text>(
         "Pan", SDL_Color{255, 215, 0, 255}, window.GetWidth() - PALETTE_W - 120, 22, 13);
 
+    // Initialize popup subsystem
+    mPopups.powerUpRegistry = &GetPowerUpRegistry();
+    mPopups.movPlatGroupId  = mMovPlatCurGroupId;
+
     // Initialize the default tool
     SwitchTool(ToolId::MoveCam);
 }
@@ -251,120 +278,18 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
     }
 
     // ── Moving-platform popup: text input for speed field ─────────────────────
-    if (mMovPlatSpeedInput) {
-        if (e.type == SDL_EVENT_TEXT_INPUT) {
-            // Only allow digits
-            for (char ch : std::string(e.text.text))
-                if (ch >= '0' && ch <= '9')
-                    mMovPlatSpeedStr += ch;
+    // -- Popup subsystem: movplat speed field, import input, delete confirm,
+    //    anim picker, power-up picker, movplat config clicks
+    {
+        auto pctx = MakePopupCtx();
+        if (mPopups.HandleEvent(e, pctx, mMovPlatIndices))
             return true;
-        }
-        if (e.type == SDL_EVENT_KEY_DOWN) {
-            if (e.key.key == SDLK_BACKSPACE && !mMovPlatSpeedStr.empty()) {
-                mMovPlatSpeedStr.pop_back();
-                return true;
-            }
-            if (e.key.key == SDLK_RETURN || e.key.key == SDLK_KP_ENTER ||
-                e.key.key == SDLK_ESCAPE || e.key.key == SDLK_TAB) {
-                // Commit value
-                if (!mMovPlatSpeedStr.empty()) {
-                    int v            = std::clamp(std::stoi(mMovPlatSpeedStr), 10, 2000);
-                    mMovPlatSpeed    = (float)v;
-                    mMovPlatSpeedStr = std::to_string(v);
-                    // Apply to current session tiles
-                    for (int idx : mMovPlatIndices)
-                        mLevel.tiles[idx].moveSpeed = mMovPlatSpeed;
-                    // Also apply to ALL moving tiles in the current group
-                    for (auto& t : mLevel.tiles) {
-                        if (!t.moving)
-                            continue;
-                        bool inGroup =
-                            (mMovPlatCurGroupId != 0 &&
-                             t.moveGroupId == mMovPlatCurGroupId) ||
-                            std::any_of(mMovPlatIndices.begin(),
-                                        mMovPlatIndices.end(),
-                                        [&](int i) { return &t == &mLevel.tiles[i]; });
-                        if (inGroup)
-                            t.moveSpeed = mMovPlatSpeed;
-                    }
-                }
-                mMovPlatSpeedInput = false;
-                SDL_StopTextInput(mWindow ? mWindow->GetRaw() : nullptr);
-                return true;
-            }
-        }
-        return true; // swallow all other input while field is focused
     }
 
-    // ── Import text input ─────────────────────────────────────────────────────
-    if (mImportInputActive) {
-        if (e.type == SDL_EVENT_TEXT_INPUT) {
-            mImportInputText += e.text.text;
-            return true;
-        }
-        if (e.type == SDL_EVENT_KEY_DOWN) {
-            switch (e.key.key) {
-                case SDLK_ESCAPE:
-                    mImportInputActive = false;
-                    mImportInputText.clear();
-                    SetStatus("Import cancelled");
-                    SDL_StopTextInput(mWindow ? mWindow->GetRaw() : nullptr);
-                    return true;
-                case SDLK_BACKSPACE:
-                    if (!mImportInputText.empty())
-                        mImportInputText.pop_back();
-                    return true;
-                case SDLK_RETURN:
-                case SDLK_KP_ENTER: {
-                    std::string path   = mImportInputText;
-                    mImportInputActive = false;
-                    mImportInputText.clear();
-                    SDL_StopTextInput(mWindow ? mWindow->GetRaw() : nullptr);
-                    if (!path.empty())
-                        ImportPath(path);
-                    return true;
-                }
-                default:
-                    break;
-            }
-        }
-        return true;
-    }
+    // (Import input handled by mPopups.HandleEvent above)
 
     // ── Delete confirmation popup ──────────────────────────────────────────
-    if (mDelConfirmActive) {
-        if (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_ESCAPE) {
-            mDelConfirmActive = false;
-            SetStatus("Delete cancelled");
-            return true;
-        }
-        if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && e.button.button == SDL_BUTTON_LEFT) {
-            int mx = (int)e.button.x, my = (int)e.button.y;
-            if (HitTest(mDelConfirmYes, mx, my)) {
-                std::error_code ec;
-                if (mDelConfirmIsDir)
-                    fs::remove_all(mDelConfirmPath, ec);
-                else
-                    fs::remove(mDelConfirmPath, ec);
-                mDelConfirmActive = false;
-                // Refresh the right palette depending on what was deleted
-                bool wasBg = (mDelConfirmPath.rfind(BG_ROOT, 0) == 0);
-                if (wasBg)
-                    LoadBgPalette();
-                else
-                    LoadTileView(mPalette.CurrentDir());
-                SetStatus((mDelConfirmIsDir ? "Deleted folder: " : "Deleted: ") +
-                          mDelConfirmName);
-                return true;
-            }
-            if (HitTest(mDelConfirmNo, mx, my)) {
-                mDelConfirmActive = false;
-                SetStatus("Delete cancelled");
-                return true;
-            }
-        }
-        return true; // swallow all other input while popup is open
-    }
+    // (Delete confirm handled by mPopups.HandleEvent above)
 
     // ── Pan: middle-mouse drag OR Ctrl + left-mouse drag ────────────────────
     auto startPan = [&](int mx, int my) { mCamera.StartPan(mx, my); };
@@ -525,9 +450,9 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                 for (int idx : mMovPlatIndices)
                     mLevel.tiles[idx].moveRange = mMovPlatRange;
                 SetStatus("MovePlat range=" + std::to_string((int)mMovPlatRange) +
-                          "  spd=" + std::to_string((int)mMovPlatSpeed) +
-                          (mMovPlatLoop ? "  LOOP" : "") +
-                          (mMovPlatTrigger ? "  TRIGGER" : ""));
+                          "  spd=" + std::to_string((int)mPopups.movPlatSpeed) +
+                          (mPopups.movPlatLoop ? "  LOOP" : "") +
+                          (mPopups.movPlatTrigger ? "  TRIGGER" : ""));
             }
         }
     }
@@ -613,14 +538,12 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                 break;
             }
 
-            case SDLK_I:
-                mImportInputActive = true;
-                mImportInputText.clear();
-                SDL_StartTextInput(mWindow ? mWindow->GetRaw() : nullptr);
-                SetStatus(mPalette.ActiveTab() == EditorPalette::Tab::Backgrounds
-                              ? "Import bg path or folder (Enter=go, Esc=cancel):"
-                              : "Import tile path or folder (Enter=go, Esc=cancel):");
+            case SDLK_I: {
+                auto pctx2 = MakePopupCtx();
+                mPopups.OpenImportInput(
+                    mPalette.ActiveTab() == EditorPalette::Tab::Backgrounds, pctx2);
                 break;
+            }
             case SDLK_S:
                 if (e.key.mod & SDL_KMOD_CTRL) {
                     fs::create_directories("levels");
@@ -658,7 +581,7 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                                                  : "Palette visible (Tab to hide)");
                 break;
             case SDLK_ESCAPE:
-                if (mActionAnimPickerTile >= 0) {
+                if (mPopups.animPickerTile >= 0) {
                     CloseAnimPicker();
                     break;
                 }
@@ -735,56 +658,56 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
             //  V 192  50  (vert, long)
             //  V  48  40  (vert, short)
             //  → back to H 96 60
-            if (mMovPlatHoriz && mMovPlatRange == 96 && mMovPlatSpeed == 60 &&
-                !mMovPlatLoop) {
-                mMovPlatHoriz = true;
+            if (mPopups.movPlatHoriz && mMovPlatRange == 96 && mPopups.movPlatSpeed == 60 &&
+                !mPopups.movPlatLoop) {
+                mPopups.movPlatHoriz = true;
                 mMovPlatRange = 48;
-                mMovPlatSpeed = 40;
-                mMovPlatLoop  = false;
-            } else if (mMovPlatHoriz && mMovPlatRange == 48 && !mMovPlatLoop) {
-                mMovPlatHoriz = true;
+                mPopups.movPlatSpeed = 40;
+                mPopups.movPlatLoop  = false;
+            } else if (mPopups.movPlatHoriz && mMovPlatRange == 48 && !mPopups.movPlatLoop) {
+                mPopups.movPlatHoriz = true;
                 mMovPlatRange = 192;
-                mMovPlatSpeed = 80;
-                mMovPlatLoop  = false;
-            } else if (mMovPlatHoriz && mMovPlatRange == 192 && !mMovPlatLoop) {
-                mMovPlatHoriz = false;
+                mPopups.movPlatSpeed = 80;
+                mPopups.movPlatLoop  = false;
+            } else if (mPopups.movPlatHoriz && mMovPlatRange == 192 && !mPopups.movPlatLoop) {
+                mPopups.movPlatHoriz = false;
                 mMovPlatRange = 96;
-                mMovPlatSpeed = 60;
-                mMovPlatLoop  = false;
-            } else if (!mMovPlatHoriz && mMovPlatRange == 96 && !mMovPlatLoop) {
-                mMovPlatHoriz = false;
+                mPopups.movPlatSpeed = 60;
+                mPopups.movPlatLoop  = false;
+            } else if (!mPopups.movPlatHoriz && mMovPlatRange == 96 && !mPopups.movPlatLoop) {
+                mPopups.movPlatHoriz = false;
                 mMovPlatRange = 192;
-                mMovPlatSpeed = 50;
-                mMovPlatLoop  = false;
-            } else if (!mMovPlatHoriz && mMovPlatRange == 192 && !mMovPlatLoop) {
-                mMovPlatHoriz = false;
+                mPopups.movPlatSpeed = 50;
+                mPopups.movPlatLoop  = false;
+            } else if (!mPopups.movPlatHoriz && mMovPlatRange == 192 && !mPopups.movPlatLoop) {
+                mPopups.movPlatHoriz = false;
                 mMovPlatRange = 48;
-                mMovPlatSpeed = 40;
-                mMovPlatLoop  = false;
-            } else if (!mMovPlatLoop) {
-                mMovPlatHoriz   = true;
-                mMovPlatRange   = 1800;
-                mMovPlatSpeed   = 150;
-                mMovPlatLoop    = true;
-                mMovPlatTrigger = true;
+                mPopups.movPlatSpeed = 40;
+                mPopups.movPlatLoop  = false;
+            } else if (!mPopups.movPlatLoop) {
+                mPopups.movPlatHoriz   = true;
+                mMovPlatRange          = 1800;
+                mPopups.movPlatSpeed   = 150;
+                mPopups.movPlatLoop    = true;
+                mPopups.movPlatTrigger = true;
             } else {
-                mMovPlatHoriz   = true;
-                mMovPlatRange   = 96;
-                mMovPlatSpeed   = 60;
-                mMovPlatLoop    = false;
-                mMovPlatTrigger = false;
+                mPopups.movPlatHoriz   = true;
+                mMovPlatRange          = 96;
+                mPopups.movPlatSpeed   = 60;
+                mPopups.movPlatLoop    = false;
+                mPopups.movPlatTrigger = false;
             }
             // Update all tiles already in the group
             for (int idx : mMovPlatIndices) {
-                mLevel.tiles[idx].moveHoriz   = mMovPlatHoriz;
+                mLevel.tiles[idx].moveHoriz   = mPopups.movPlatHoriz;
                 mLevel.tiles[idx].moveRange   = mMovPlatRange;
-                mLevel.tiles[idx].moveSpeed   = mMovPlatSpeed;
-                mLevel.tiles[idx].moveLoop    = mMovPlatLoop;
-                mLevel.tiles[idx].moveTrigger = mMovPlatTrigger;
+                mLevel.tiles[idx].moveSpeed   = mPopups.movPlatSpeed;
+                mLevel.tiles[idx].moveLoop    = mPopups.movPlatLoop;
+                mLevel.tiles[idx].moveTrigger = mPopups.movPlatTrigger;
             }
-            SetStatus(std::string(mMovPlatHoriz ? "H" : "V") +
+            SetStatus(std::string(mPopups.movPlatHoriz ? "H" : "V") +
                       "  range=" + std::to_string((int)mMovPlatRange) + "  spd=" +
-                      std::to_string((int)mMovPlatSpeed) + "  (RClick cycles presets)");
+                      std::to_string((int)mPopups.movPlatSpeed) + "  (RClick cycles presets)");
             return true;
         }
     }
@@ -819,19 +742,19 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
         int mx = (int)e.button.x, my = (int)e.button.y;
 
         // ── Destroy-anim picker — handle clicks inside the popup ──────────────────
-        if (mActionAnimPickerTile >= 0 && !mAnimPickerEntries.empty()) {
-            if (HitTest(mActionAnimPickerRect, mx, my)) {
-                // Re-derive cell geometry (must match Render exactly)
+        // Anim-picker clicks handled by mPopups.HandleEvent fired above.
+        if (false && !mPopups.animPickerEntries.empty()) {
+            if (HitTest(mPopups.animPickerRect, mx, my)) {
                 const int THUMB    = 48;
                 const int ROW_H    = THUMB + 10;
                 const int PAD      = 8;
                 const int COL_W    = THUMB + PAD * 2;
                 const int COLS     = 4;
                 const int TITLE_H  = 28;
-                int       px       = mActionAnimPickerRect.x;
-                int       py       = mActionAnimPickerRect.y;
+                int       px       = mPopups.animPickerRect.x;
+                int       py       = mPopups.animPickerRect.y;
                 int       ey       = py + TITLE_H;
-                int       nEntries = (int)mAnimPickerEntries.size();
+                int       nEntries = (int)mPopups.animPickerEntries.size();
                 for (int i = 0; i < nEntries; i++) {
                     int      col  = i % COLS;
                     int      row  = i / COLS;
@@ -839,13 +762,13 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                     int      ey2  = ey + PAD + row * (ROW_H + PAD);
                     SDL_Rect cell = {ex, ey2, COL_W - PAD, ROW_H};
                     if (HitTest(cell, mx, my)) {
-                        const auto& entry = mAnimPickerEntries[i];
-                        if (mActionAnimPickerTile < (int)mLevel.tiles.size()) {
-                            mLevel.tiles[mActionAnimPickerTile].actionDestroyAnim =
+                        const auto& entry = mPopups.animPickerEntries[i];
+                        if (mPopups.animPickerTile < (int)mLevel.tiles.size()) {
+                            mLevel.tiles[mPopups.animPickerTile].actionDestroyAnim =
                                 entry.path;
                             if (!entry.path.empty())
                                 GetDestroyAnimThumb(entry.path);
-                            SetStatus("Tile " + std::to_string(mActionAnimPickerTile) +
+                            SetStatus("Tile " + std::to_string(mPopups.animPickerTile) +
                                       ": death anim → " +
                                       (entry.path.empty() ? "None" : entry.name));
                         }
@@ -896,7 +819,7 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
 
         // Toolbar
         // Any toolbar click closes the anim picker
-        if (mActionAnimPickerTile >= 0 && my < TOOLBAR_H)
+        if (mPopups.animPickerTile >= 0 && my < TOOLBAR_H)
             CloseAnimPicker();
 
         // Toolbar button dispatch via EditorToolbar::HandleClick
@@ -967,8 +890,9 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                         return true;
                     case TBBtn::PowerUp:
                         SwitchTool(ToolId::PowerUp);
-                        mPowerUpPopupOpen = true;
-                        mPowerUpTileIdx   = -1;
+                        mPopups.powerUpOpen    = false;
+                        mPopups.powerUpTileIdx = -1;
+                        mPopups.powerUpRegistry = &GetPowerUpRegistry();
                         lblTool->CreateSurface("PowerUp");
                         SetStatus("PowerUp: click a tile to assign a power-up pickup");
                         return true;
@@ -980,22 +904,23 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                             if (ts.moveGroupId > maxUsed)
                                 maxUsed = ts.moveGroupId;
                         mMovPlatNextGroupId = maxUsed + 1;
-                        mMovPlatCurGroupId  = mMovPlatNextGroupId++;
+                        mMovPlatCurGroupId     = mMovPlatNextGroupId++;
+                        mPopups.movPlatGroupId = mMovPlatCurGroupId;
                         mMovPlatIndices.clear();
                         for (int i = 0; i < (int)mLevel.tiles.size(); i++) {
                             if (!mLevel.tiles[i].moving)
                                 continue;
-                            const auto& first = mLevel.tiles[i];
-                            mMovPlatHoriz     = first.moveHoriz;
-                            mMovPlatRange     = first.moveRange;
-                            mMovPlatSpeed     = first.moveSpeed;
-                            mMovPlatLoop      = first.moveLoop;
-                            mMovPlatTrigger   = first.moveTrigger;
+                            const auto& first         = mLevel.tiles[i];
+                            mPopups.movPlatHoriz      = first.moveHoriz;
+                            mMovPlatRange              = first.moveRange;
+                            mPopups.movPlatSpeed      = first.moveSpeed;
+                            mPopups.movPlatLoop       = first.moveLoop;
+                            mPopups.movPlatTrigger    = first.moveTrigger;
                             break;
                         }
-                        mMovPlatPopupOpen  = true;
-                        mMovPlatSpeedInput = false;
-                        mMovPlatSpeedStr   = std::to_string((int)mMovPlatSpeed);
+                        mPopups.movPlatOpen       = true;
+                        mPopups.movPlatSpeedInput  = false;
+                        mPopups.movPlatSpeedStr    = std::to_string((int)mPopups.movPlatSpeed);
                         SetStatus(
                             "MovingPlat: click tiles to add. RClick=axis/range. New group "
                             "ID=" +
@@ -1098,12 +1023,11 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
 
                 const auto& item = mPalette.Items()[idx];
 
-                // Delete button hit? open confirm popup instead of deleting immediately
+                // Delete button hit? open confirm popup
                 if (item.delBtn.x >= 0 && HitTest(item.delBtn, mx, my)) {
-                    mDelConfirmActive = true;
-                    mDelConfirmPath   = item.path;
-                    mDelConfirmIsDir  = item.isFolder;
-                    mDelConfirmName   = fs::path(item.path).filename().string();
+                    mPopups.OpenDeleteConfirm(
+                        item.path, item.isFolder,
+                        fs::path(item.path).filename().string());
                     return true;
                 }
 
@@ -1167,11 +1091,9 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                     // Delete button?
                     if (mPalette.BgItems()[idx].delBtn.x >= 0 &&
                         HitTest(mPalette.BgItems()[idx].delBtn, mx, my)) {
-                        mDelConfirmActive = true;
-                        mDelConfirmPath   = mPalette.BgItems()[idx].path;
-                        mDelConfirmIsDir  = false;
-                        mDelConfirmName =
-                            fs::path(mPalette.BgItems()[idx].path).filename().string();
+                        mPopups.OpenDeleteConfirm(
+                            mPalette.BgItems()[idx].path, false,
+                            fs::path(mPalette.BgItems()[idx].path).filename().string());
                     } else {
                         ApplyBackground(idx);
                     }
@@ -1181,96 +1103,7 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
         }
 
         // ── Canvas ─────────────────────────────────────────────────────────────
-        // Moving-platform config popup click handling
-        if (mMovPlatPopupOpen && HitTest(mMovPlatPopupRect, mx, my)) {
-            const int PW      = 280;
-            const int PAD     = 8;
-            const int ROW_H   = 26;
-            const int TITLE_H = 30;
-            const int px      = mMovPlatPopupRect.x;
-            const int py      = mMovPlatPopupRect.y;
-            int       ry      = py + TITLE_H;
-
-            // Row 0: speed field + close button
-            SDL_Rect speedField = {
-                px + PAD + 90, ry + (ROW_H - 20) / 2, PW - PAD * 2 - 90 - 44, 20};
-            SDL_Rect closeBtnR = {px + PW - PAD - 36, ry + (ROW_H - 20) / 2, 36, 20};
-            if (HitTest(speedField, mx, my)) {
-                mMovPlatSpeedInput = true;
-                SDL_StartTextInput(mWindow ? mWindow->GetRaw() : nullptr);
-                return true;
-            }
-            if (HitTest(closeBtnR, mx, my)) {
-                if (!mMovPlatSpeedStr.empty()) {
-                    int v         = std::clamp(std::stoi(mMovPlatSpeedStr), 10, 2000);
-                    mMovPlatSpeed = (float)v;
-                    // Apply to current session tiles
-                    for (int idx : mMovPlatIndices)
-                        mLevel.tiles[idx].moveSpeed = mMovPlatSpeed;
-                    // Also apply to ALL moving tiles in the current group so editing
-                    // an already-placed platform actually takes effect.
-                    for (auto& t : mLevel.tiles) {
-                        if (!t.moving)
-                            continue;
-                        bool inGroup =
-                            (mMovPlatCurGroupId != 0 &&
-                             t.moveGroupId == mMovPlatCurGroupId) ||
-                            std::any_of(mMovPlatIndices.begin(),
-                                        mMovPlatIndices.end(),
-                                        [&](int i) { return &t == &mLevel.tiles[i]; });
-                        if (inGroup)
-                            t.moveSpeed = mMovPlatSpeed;
-                    }
-                }
-                mMovPlatPopupOpen  = false;
-                mMovPlatSpeedInput = false;
-                SDL_StopTextInput(mWindow ? mWindow->GetRaw() : nullptr);
-                return true;
-            }
-            ry += ROW_H + PAD;
-
-            // Row 1: H/V direction toggle
-            SDL_Rect btnH = {px + PAD + 90, ry, 48, ROW_H - 4};
-            SDL_Rect btnV = {px + PAD + 90 + 54, ry, 48, ROW_H - 4};
-            if (HitTest(btnH, mx, my)) {
-                mMovPlatHoriz = true;
-                for (int idx : mMovPlatIndices)
-                    mLevel.tiles[idx].moveHoriz = true;
-                return true;
-            }
-            if (HitTest(btnV, mx, my)) {
-                mMovPlatHoriz = false;
-                for (int idx : mMovPlatIndices)
-                    mLevel.tiles[idx].moveHoriz = false;
-                return true;
-            }
-            ry += ROW_H + PAD;
-
-            // Row 2: Loop (ping-pong) checkbox row
-            SDL_Rect loopRow = {px + PAD, ry, PW - PAD * 2, ROW_H};
-            if (HitTest(loopRow, mx, my)) {
-                mMovPlatLoop = !mMovPlatLoop;
-                if (!mMovPlatLoop)
-                    mMovPlatTrigger = false;
-                for (int idx : mMovPlatIndices) {
-                    mLevel.tiles[idx].moveLoop    = mMovPlatLoop;
-                    mLevel.tiles[idx].moveTrigger = mMovPlatTrigger;
-                }
-                return true;
-            }
-            ry += ROW_H + PAD;
-
-            // Row 3: Move on Touch checkbox row
-            SDL_Rect trigRow = {px + PAD, ry, PW - PAD * 2, ROW_H};
-            if (HitTest(trigRow, mx, my)) {
-                mMovPlatTrigger = !mMovPlatTrigger;
-                for (int idx : mMovPlatIndices)
-                    mLevel.tiles[idx].moveTrigger = mMovPlatTrigger;
-                return true;
-            }
-
-            return true; // absorb all other clicks inside popup
-        }
+        // MovingPlat config popup clicks handled by mPopups.HandleEvent above.
 
         if (my < TOOLBAR_H || mx >= CanvasW())
             return true;
@@ -1300,13 +1133,12 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
             default:
                 break;
             case ToolId::Action: {
-                // If the picker is open and the click landed outside it, close it
-                // and fall through so the click can act on whatever tile is below.
-                if (mActionAnimPickerTile >= 0) {
-                    if (HitTest(mActionAnimPickerRect, mx, my))
-                        return true; // handled by the picker block above
+                // Picker clicks handled by mPopups.HandleEvent above.
+                // If picker open but click was outside, it's already closed.
+                if (mPopups.animPickerTile >= 0) {
+                    if (HitTest(mPopups.animPickerRect, mx, my))
+                        return true; // consumed by HandleEvent
                     CloseAnimPicker();
-                    // fall through — open picker for the newly clicked tile if applicable
                 }
                 int ti = HitTile(mx, my);
                 if (ti >= 0) {
@@ -1329,64 +1161,21 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                 return true;
             }
             case ToolId::PowerUp: {
-                // Handle PowerUp popup click: close popup if open and click is in it
-                if (mPowerUpPopupOpen && mPowerUpTileIdx >= 0 &&
-                    HitTest(mPowerUpPopupRect, mx, my)) {
-                    // Re-derive cell geometry matching Render
-                    const auto& reg = GetPowerUpRegistry();
-                    const int   PAD = 8, ROW_H = 28, TITLE_H = 32;
-                    int         py = mPowerUpPopupRect.y + TITLE_H;
-                    for (int i = 0; i < (int)reg.size(); i++) {
-                        SDL_Rect row = {mPowerUpPopupRect.x + PAD,
-                                        py + i * (ROW_H + 2),
-                                        mPowerUpPopupRect.w - PAD * 2,
-                                        ROW_H};
-                        if (HitTest(row, mx, my)) {
-                            // Assign this power-up to the tile
-                            auto& t           = mLevel.tiles[mPowerUpTileIdx];
-                            t.powerUp         = true;
-                            t.powerUpType     = reg[i].id;
-                            t.powerUpDuration = reg[i].defaultDuration;
-                            SetStatus("Tile " + std::to_string(mPowerUpTileIdx) +
-                                      " -> PowerUp: " + reg[i].label);
-                            mPowerUpPopupOpen = false;
-                            mPowerUpTileIdx   = -1;
-                            return true;
-                        }
-                    }
-                    // 'None' row (clear)
-                    SDL_Rect noneRow = {mPowerUpPopupRect.x + PAD,
-                                        py + (int)reg.size() * (ROW_H + 2),
-                                        mPowerUpPopupRect.w - PAD * 2,
-                                        ROW_H};
-                    if (HitTest(noneRow, mx, my)) {
-                        mLevel.tiles[mPowerUpTileIdx].powerUp     = false;
-                        mLevel.tiles[mPowerUpTileIdx].powerUpType = "";
-                        SetStatus("Tile " + std::to_string(mPowerUpTileIdx) +
-                                  " -> PowerUp removed");
-                        mPowerUpPopupOpen = false;
-                        mPowerUpTileIdx   = -1;
-                        return true;
-                    }
-                    return true; // absorb
-                }
-                // Click outside popup or no popup open: open/reopen on tile
-                mPowerUpPopupOpen = false;
-                mPowerUpTileIdx   = -1;
-                int ti            = HitTile(mx, my);
+                // PowerUp popup clicks are handled by mPopups.HandleEvent.
+                // Here we handle opening the popup on tile click.
+                // If popup is open, HandleEvent consumed the click already.
+                if (mPopups.powerUpOpen && mPopups.powerUpTileIdx >= 0)
+                    return true; // absorbed by HandleEvent
+                // Open/reopen on tile click
+                mPopups.powerUpOpen    = false;
+                mPopups.powerUpTileIdx = -1;
+                int ti                  = HitTile(mx, my);
                 if (ti >= 0) {
-                    mPowerUpTileIdx   = ti;
-                    mPowerUpPopupOpen = true;
-                    // Position popup near the tile
                     auto [wsx, wsy] = WorldToScreen(mLevel.tiles[ti].x, mLevel.tiles[ti].y);
-                    const auto& reg = GetPowerUpRegistry();
-                    int         ph  = 32 + (int)(reg.size() + 1) * 30 + 8;
-                    int         pw  = 200;
-                    int px2 = std::clamp(wsx, 0, (mWindow ? mWindow->GetWidth() : 800) - pw);
-                    int py2 = std::clamp(wsy + mLevel.tiles[ti].h,
-                                         TOOLBAR_H,
-                                         (mWindow ? mWindow->GetHeight() : 600) - ph);
-                    mPowerUpPopupRect = {px2, py2, pw, ph};
+                    int winW = mWindow ? mWindow->GetWidth()  : 800;
+                    int winH = mWindow ? mWindow->GetHeight() : 600;
+                    mPopups.OpenPowerUpPicker(ti, wsx, wsy + mLevel.tiles[ti].h,
+                                             winW, winH, TOOLBAR_H);
                     SetStatus("Tile " + std::to_string(ti) + ": choose power-up type");
                 } else {
                     SetStatus("PowerUp: click a tile to assign a power-up pickup");
@@ -1407,12 +1196,13 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                         // group
                         mMovPlatCurGroupId =
                             (t.moveGroupId != 0) ? t.moveGroupId : mMovPlatNextGroupId++;
-                        mMovPlatHoriz    = t.moveHoriz;
-                        mMovPlatRange    = t.moveRange;
-                        mMovPlatSpeed    = t.moveSpeed;
-                        mMovPlatLoop     = t.moveLoop;
-                        mMovPlatTrigger  = t.moveTrigger;
-                        mMovPlatSpeedStr = std::to_string((int)mMovPlatSpeed);
+                        mPopups.movPlatGroupId = mMovPlatCurGroupId;
+                        mPopups.movPlatHoriz    = t.moveHoriz;
+                        mMovPlatRange           = t.moveRange;
+                        mPopups.movPlatSpeed    = t.moveSpeed;
+                        mPopups.movPlatLoop     = t.moveLoop;
+                        mPopups.movPlatTrigger  = t.moveTrigger;
+                        mPopups.movPlatSpeedStr = std::to_string((int)mPopups.movPlatSpeed);
                         // Collect all tiles in that group into mMovPlatIndices
                         mMovPlatIndices.clear();
                         for (int i = 0; i < (int)mLevel.tiles.size(); i++) {
@@ -1426,7 +1216,7 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                         }
                         SetStatus("Adopted platform group " +
                                   std::to_string(mMovPlatCurGroupId) +
-                                  "  spd=" + std::to_string((int)mMovPlatSpeed) +
+                                  "  spd=" + std::to_string((int)mPopups.movPlatSpeed) +
                                   "  tiles=" + std::to_string(mMovPlatIndices.size()));
                         return true;
                     }
@@ -1443,11 +1233,11 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                         // Add to current group
                         mMovPlatIndices.push_back(ti);
                         t.moving      = true;
-                        t.moveHoriz   = mMovPlatHoriz;
+                        t.moveHoriz   = mPopups.movPlatHoriz;
                         t.moveRange   = mMovPlatRange;
-                        t.moveSpeed   = mMovPlatSpeed;
-                        t.moveLoop    = mMovPlatLoop;
-                        t.moveTrigger = mMovPlatTrigger;
+                        t.moveSpeed   = mPopups.movPlatSpeed;
+                        t.moveLoop    = mPopups.movPlatLoop;
+                        t.moveTrigger = mPopups.movPlatTrigger;
                         t.movePhase   = 0.0f; // set per-tile via Ctrl+scroll in editor
                         t.moveLoopDir = 1;    // set per-tile via Shift+scroll in editor
                         t.moveGroupId =
@@ -1460,9 +1250,9 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                         SetStatus("Tile " + std::to_string(ti) +
                                   " added to platform group " +
                                   std::to_string(mMovPlatCurGroupId) + "  " +
-                                  (mMovPlatHoriz ? "H" : "V") +
+                                  (mPopups.movPlatHoriz ? "H" : "V") +
                                   "  range=" + std::to_string((int)mMovPlatRange) +
-                                  "  spd=" + std::to_string((int)mMovPlatSpeed));
+                                  "  spd=" + std::to_string((int)mPopups.movPlatSpeed));
                     }
                 }
                 return true;
@@ -1596,15 +1386,15 @@ void LevelEditorScene::Render(Window& window) {
     EditorCanvasRenderer::MovPlatState mp;
     mp.indices    = &mMovPlatIndices;
     mp.curGroupId = mMovPlatCurGroupId;
-    mp.horiz      = mMovPlatHoriz;
+    mp.horiz      = mPopups.movPlatHoriz;
     mp.range      = mMovPlatRange;
-    mp.speed      = mMovPlatSpeed;
-    mp.loop       = mMovPlatLoop;
-    mp.trigger    = mMovPlatTrigger;
-    mp.popupOpen  = mMovPlatPopupOpen;
-    mp.speedInput = mMovPlatSpeedInput;
-    mp.speedStr   = mMovPlatSpeedStr;
-    mp.popupRect  = mMovPlatPopupRect;
+    mp.speed      = mPopups.movPlatSpeed;
+    mp.loop       = mPopups.movPlatLoop;
+    mp.trigger    = mPopups.movPlatTrigger;
+    mp.popupOpen  = mPopups.movPlatOpen;
+    mp.speedInput = mPopups.movPlatSpeedInput;
+    mp.speedStr   = mPopups.movPlatSpeedStr;
+    mp.popupRect  = mPopups.movPlatRect;
 
     mCanvasRenderer.Render(window,
                            screen,
@@ -1625,14 +1415,15 @@ void LevelEditorScene::Render(Window& window) {
                            mp);
 
     // Sync back the popup rect (canvas renderer computes it when popup is open)
-    mMovPlatPopupRect = mCanvasRenderer.MovPlatPopupRect();
+    mPopups.movPlatRect = mCanvasRenderer.MovPlatPopupRect();
 
     // ── UI pass ─────────────────────────────────────────────────────────────
     // Bridge AnimPickerEntry types (LevelEditorScene::AnimPickerEntry ->
     // EditorUIRenderer::AnimPickerEntry — same fields, different type).
+    // Bridge: EditorPopups::AnimPickerEntry -> EditorUIRenderer::AnimPickerEntry
     std::vector<EditorUIRenderer::AnimPickerEntry> uiPickerEntries;
-    uiPickerEntries.reserve(mAnimPickerEntries.size());
-    for (const auto& e : mAnimPickerEntries)
+    uiPickerEntries.reserve(mPopups.animPickerEntries.size());
+    for (const auto& e : mPopups.animPickerEntries)
         uiPickerEntries.push_back({e.path, e.name, e.thumb});
 
     // Bridge PowerUpEntry types
@@ -1643,32 +1434,32 @@ void LevelEditorScene::Render(Window& window) {
         uiPowerUpReg.push_back({r.id, r.label, r.defaultDuration});
 
     EditorUIRenderer::PowerUpPopupState puState;
-    puState.open     = mPowerUpPopupOpen;
-    puState.tileIdx  = mPowerUpTileIdx;
-    puState.rect     = mPowerUpPopupRect;
+    puState.open     = mPopups.powerUpOpen;
+    puState.tileIdx  = mPopups.powerUpTileIdx;
+    puState.rect     = mPopups.powerUpRect;
     puState.registry = &uiPowerUpReg;
 
     EditorUIRenderer::DelConfirmState dcState;
-    dcState.active  = mDelConfirmActive;
-    dcState.isDir   = mDelConfirmIsDir;
-    dcState.name    = mDelConfirmName;
-    dcState.yesRect = mDelConfirmYes;
-    dcState.noRect  = mDelConfirmNo;
+    dcState.active  = mPopups.delActive;
+    dcState.isDir   = mPopups.delIsDir;
+    dcState.name    = mPopups.delName;
+    dcState.yesRect = mPopups.delYes;
+    dcState.noRect  = mPopups.delNo;
 
     EditorUIRenderer::ImportInputState impState;
-    impState.active = mImportInputActive;
-    impState.text   = mImportInputText;
+    impState.active = mPopups.importActive;
+    impState.text   = mPopups.importText;
 
     EditorUIRenderer::MovPlatPopupState mpuState;
-    mpuState.open       = mMovPlatPopupOpen;
-    mpuState.speedInput = mMovPlatSpeedInput;
-    mpuState.speedStr   = mMovPlatSpeedStr;
-    mpuState.speed      = mMovPlatSpeed;
-    mpuState.horiz      = mMovPlatHoriz;
-    mpuState.loop       = mMovPlatLoop;
-    mpuState.trigger    = mMovPlatTrigger;
+    mpuState.open       = mPopups.movPlatOpen;
+    mpuState.speedInput = mPopups.movPlatSpeedInput;
+    mpuState.speedStr   = mPopups.movPlatSpeedStr;
+    mpuState.speed      = mPopups.movPlatSpeed;
+    mpuState.horiz      = mPopups.movPlatHoriz;
+    mpuState.loop       = mPopups.movPlatLoop;
+    mpuState.trigger    = mPopups.movPlatTrigger;
     mpuState.curGroupId = mMovPlatCurGroupId;
-    mpuState.rect       = mMovPlatPopupRect;
+    mpuState.rect       = mPopups.movPlatRect;
 
     mUIRenderer.Render(window,
                        screen,
@@ -1684,9 +1475,9 @@ void LevelEditorScene::Render(Window& window) {
                        lblStatus.get(),
                        lblTool.get(),
                        lblToolPrefix.get(),
-                       mActionAnimPickerTile,
+                       mPopups.animPickerTile,
                        uiPickerEntries,
-                       mActionAnimPickerRect,
+                       mPopups.animPickerRect,
                        puState,
                        dcState,
                        impState,
@@ -1709,9 +1500,9 @@ void LevelEditorScene::Render(Window& window) {
                        GetTileW());
 
     // Sync back rects that HandleEvent needs
-    mDelConfirmYes        = mUIRenderer.DelConfirmYesRect();
-    mDelConfirmNo         = mUIRenderer.DelConfirmNoRect();
-    mActionAnimPickerRect = mUIRenderer.AnimPickerRect();
+    mPopups.delYes        = mUIRenderer.DelConfirmYesRect();
+    mPopups.delNo         = mUIRenderer.DelConfirmNoRect();
+    mPopups.animPickerRect = mUIRenderer.AnimPickerRect();
 
     // Upload completed surface to GPU and present
     SDL_Texture* tex = SDL_CreateTextureFromSurface(ren, screen);
@@ -1736,126 +1527,6 @@ std::unique_ptr<Scene> LevelEditorScene::NextScene() {
     }
     return nullptr;
 }
-// --- ImportPath ------------------------------------------------------------
-bool LevelEditorScene::ImportPath(const std::string& srcPath) {
-    fs::path src(srcPath);
-
-    if (fs::is_directory(src)) {
-        if (mPalette.ActiveTab() == EditorPalette::Tab::Backgrounds) {
-            int count = 0;
-            for (const auto& entry : fs::recursive_directory_iterator(src)) {
-                if (entry.path().extension() == ".png")
-                    count += ImportPath(entry.path().string()) ? 1 : 0;
-            }
-            SetStatus("Imported " + std::to_string(count) + " backgrounds from " +
-                      src.filename().string());
-            return count > 0;
-        }
-
-        fs::path        baseDestDir = fs::path(mPalette.CurrentDir()) / src.filename();
-        std::error_code ec;
-        int             count = 0;
-        for (const auto& entry : fs::recursive_directory_iterator(src)) {
-            if (entry.is_directory()) {
-                fs::path rel  = fs::relative(entry.path(), src);
-                fs::path dest = baseDestDir / rel;
-                fs::create_directories(dest, ec);
-                continue;
-            }
-            if (entry.path().extension() != ".png")
-                continue;
-            fs::path rel  = fs::relative(entry.path(), src);
-            fs::path dest = baseDestDir / rel;
-            fs::create_directories(dest.parent_path(), ec);
-            if (!fs::exists(dest)) {
-                fs::copy_file(entry.path(), dest, ec);
-                if (ec)
-                    continue;
-            }
-            count++;
-        }
-        if (count == 0) {
-            SetStatus("No PNGs found in " + src.filename().string());
-            return false;
-        }
-        LoadTileView(baseDestDir.string());
-        SetStatus("Imported \"" + src.filename().string() + "\" into " +
-                  fs::path(mPalette.CurrentDir()).filename().string() + " (" +
-                  std::to_string(count) + " files)");
-        return true;
-    }
-
-    std::string ext = src.extension().string();
-    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-    if (ext != ".png") {
-        SetStatus("Import failed: only .png supported (got " + ext + ")");
-        return false;
-    }
-
-    bool        isBg       = (mPalette.ActiveTab() == EditorPalette::Tab::Backgrounds);
-    std::string destDirStr = isBg ? BG_ROOT : TILE_ROOT;
-    if (!isBg && mPalette.CurrentDir() != TILE_ROOT)
-        destDirStr = mPalette.CurrentDir();
-
-    fs::path        destDir(destDirStr);
-    std::error_code ec;
-    fs::create_directories(destDir, ec);
-    if (ec) {
-        SetStatus("Import failed: can't create " + destDirStr);
-        return false;
-    }
-
-    fs::path dest = destDir / src.filename();
-    if (!fs::exists(dest)) {
-        fs::copy_file(src, dest, ec);
-        if (ec) {
-            SetStatus("Import failed: " + ec.message());
-            return false;
-        }
-    }
-
-    if (isBg) {
-        SDL_Surface* full = LoadPNG(dest);
-        if (!full) {
-            SetStatus("Import failed: can't load " + dest.string());
-            return false;
-        }
-        const int    tw = PALETTE_W - 8, th = tw / 2;
-        SDL_Surface* thumb = MakeThumb(full, tw, th);
-        SDL_DestroySurface(full);
-        mPalette.BgItems().push_back({dest.string(), dest.stem().string(), thumb});
-        mPalette.SetBgScroll(std::max(0, (int)mPalette.BgItems().size() - 1));
-        ApplyBackground((int)mPalette.BgItems().size() - 1);
-        SetStatus("Imported & applied: " + dest.filename().string());
-    } else {
-        SDL_Surface* full = LoadPNG(dest);
-        if (!full) {
-            SetStatus("Import failed: can't load " + dest.string());
-            return false;
-        }
-        SDL_SetSurfaceBlendMode(full, SDL_BLENDMODE_BLEND);
-        SDL_Surface* thumb = MakeThumb(full, PAL_ICON, PAL_ICON);
-        LoadTileView(mPalette.CurrentDir());
-        auto& items = mPalette.Items();
-        for (int i = 0; i < (int)items.size(); i++) {
-            if (items[i].path == dest.string()) {
-                mPalette.SetSelectedTile(i);
-                int row = i / PAL_COLS;
-                mPalette.SetTileScroll(std::max(0, row));
-                break;
-            }
-        }
-        if (thumb)
-            SDL_DestroySurface(thumb);
-        SDL_DestroySurface(full);
-        SwitchTool(ToolId::Tile);
-        if (lblTool)
-            lblTool->CreateSurface("Tile");
-        SetStatus("Imported: " + dest.filename().string() + " -> auto-selected");
-    }
-    return true;
-}
-
 // --- Tile tool accessors ---------------------------------------------------
 int LevelEditorScene::GetTileW() const {
     if (mActiveToolId == ToolId::Tile && mTool)

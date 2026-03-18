@@ -1,6 +1,8 @@
 #pragma once
 #include "EditorCamera.hpp"
+#include "EditorFileOps.hpp"
 #include "EditorPalette.hpp"
+#include "EditorPopups.hpp"
 #include "EditorSurfaceCache.hpp"
 #include "EditorCanvasRenderer.hpp"
 #include "EditorToolbar.hpp"
@@ -171,18 +173,16 @@ class LevelEditorScene : public Scene {
     EditorSurfaceCache mSurfaceCache;
     int mActionAnimDropHover = -1;
 
-    // ── Destroy-anim picker popup ──────────────────────────────────────────
-    int      mActionAnimPickerTile = -1;
-    SDL_Rect mActionAnimPickerRect{};
-    struct AnimPickerEntry {
-        std::string  path;
-        std::string  name;
-        SDL_Surface* thumb = nullptr;
-    };
-    std::vector<AnimPickerEntry> mAnimPickerEntries;
+    // ── Popup subsystem ───────────────────────────────────────────────────────
+    EditorPopups mPopups;
 
+    // Convenience shims so existing call-sites don't all need updating
     void OpenAnimPicker(int tileIdx);
     void CloseAnimPicker();
+
+    // Build a populated Popups::Ctx from current scene state
+    EditorPopups::Ctx MakePopupCtx();
+    bool ImportPath(const std::string& srcPath); // delegates to EditorFileOps
 
     // ── Toolbar subsystem ─────────────────────────────────────────────────────
     EditorToolbar         mToolbar;
@@ -192,18 +192,8 @@ class LevelEditorScene : public Scene {
     // Status / active tool display
     std::unique_ptr<Text> lblStatus, lblTool;
 
-    // Delete confirmation popup state
-    bool        mDelConfirmActive  = false;
-    std::string mDelConfirmPath;
-    bool        mDelConfirmIsDir   = false;
-    std::string mDelConfirmName;
-    SDL_Rect    mDelConfirmYes{};
-    SDL_Rect    mDelConfirmNo{};
-
-    // Drop / import state
-    bool        mDropActive        = false;
-    bool        mImportInputActive = false;
-    std::string mImportInputText;
+    // Drop state (stays in scene — tightly coupled to Action tool hover)
+    bool mDropActive = false;
 
     // Editor camera
     EditorCamera mCamera;
@@ -221,32 +211,14 @@ class LevelEditorScene : public Scene {
     std::unique_ptr<SpriteSheet> enemySheet;
     SDL_Surface*                 mFolderIcon = nullptr;
 
-    // ── Power-up tool popup state ──────────────────────────────────────────
-    bool     mPowerUpPopupOpen  = false;
-    int      mPowerUpTileIdx    = -1;
-    SDL_Rect mPowerUpPopupRect{};
-    struct PowerUpEntry {
-        std::string id;
-        std::string label;
-        float       defaultDuration = 15.0f;
-    };
-    static const std::vector<PowerUpEntry>& GetPowerUpRegistry();
-
-    // Moving-platform tool state
+    // Moving-platform placement state (popup state lives in mPopups)
     std::vector<int> mMovPlatIndices;
     int              mMovPlatNextGroupId = 1;
     int              mMovPlatCurGroupId  = 1;
-    bool             mMovPlatHoriz       = true;
     float            mMovPlatRange       = 96.0f;
-    float            mMovPlatSpeed       = 60.0f;
-    bool             mMovPlatLoop        = false;
-    bool             mMovPlatTrigger     = false;
 
-    // Moving-platform config popup
-    bool        mMovPlatPopupOpen   = false;
-    bool        mMovPlatSpeedInput  = false;
-    std::string mMovPlatSpeedStr    = "60";
-    SDL_Rect    mMovPlatPopupRect{};
+    // Power-up registry — single source of truth shared with GameScene
+    static const std::vector<EditorPopups::PowerUpEntry>& GetPowerUpRegistry();
 
     // -------------------------------------------------------------------------
     // Helpers
@@ -314,7 +286,6 @@ class LevelEditorScene : public Scene {
     void LoadTileView(const std::string& dir) { mPalette.LoadTileView(dir, mLevel); }
     void LoadBgPalette() { mPalette.LoadBgPalette(mLevel); }
     void ApplyBackground(int idx);
-    bool ImportPath(const std::string& srcPath);
 
     // ── Tile tool helpers (used by Render for ghost preview) ─────────────────
     // These delegate to the TileTool if it's the active tool.
