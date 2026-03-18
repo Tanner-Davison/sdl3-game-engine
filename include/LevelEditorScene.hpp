@@ -2,7 +2,9 @@
 #include "EditorCamera.hpp"
 #include "EditorPalette.hpp"
 #include "EditorSurfaceCache.hpp"
+#include "EditorCanvasRenderer.hpp"
 #include "EditorToolbar.hpp"
+#include "EditorUIRenderer.hpp"
 #include "Image.hpp"
 #include "Level.hpp"
 #include "LevelSerializer.hpp"
@@ -183,7 +185,9 @@ class LevelEditorScene : public Scene {
     void CloseAnimPicker();
 
     // ── Toolbar subsystem ─────────────────────────────────────────────────────
-    EditorToolbar mToolbar;
+    EditorToolbar         mToolbar;
+    EditorCanvasRenderer  mCanvasRenderer;
+    EditorUIRenderer      mUIRenderer;
 
     // Status / active tool display
     std::unique_ptr<Text> lblStatus, lblTool;
@@ -227,7 +231,6 @@ class LevelEditorScene : public Scene {
         float       defaultDuration = 15.0f;
     };
     static const std::vector<PowerUpEntry>& GetPowerUpRegistry();
-    int  mPowerUpSelectedEntry = 0;
 
     // Moving-platform tool state
     std::vector<int> mMovPlatIndices;
@@ -296,33 +299,6 @@ class LevelEditorScene : public Scene {
         mStatusMsg = msg;
         if (lblStatus)
             lblStatus->CreateSurface(mStatusMsg);
-    }
-
-    void DrawRect(SDL_Surface* s, SDL_Rect r, SDL_Color c) {
-        const SDL_PixelFormatDetails* fmt = SDL_GetPixelFormatDetails(s->format);
-        SDL_FillSurfaceRect(s, &r, SDL_MapRGBA(fmt, nullptr, c.r, c.g, c.b, c.a));
-    }
-
-    void DrawRectAlpha(SDL_Surface* s, SDL_Rect r, SDL_Color c) {
-        if (r.w <= 0 || r.h <= 0) return;
-        SDL_Surface* ov = SDL_CreateSurface(r.w, r.h, SDL_PIXELFORMAT_ARGB8888);
-        if (!ov) return;
-        SDL_SetSurfaceBlendMode(ov, SDL_BLENDMODE_BLEND);
-        const SDL_PixelFormatDetails* fmt = SDL_GetPixelFormatDetails(ov->format);
-        SDL_FillSurfaceRect(ov, nullptr, SDL_MapRGBA(fmt, nullptr, c.r, c.g, c.b, c.a));
-        SDL_BlitSurface(ov, nullptr, s, &r);
-        SDL_DestroySurface(ov);
-    }
-
-    void DrawOutline(SDL_Surface* s, SDL_Rect r, SDL_Color c, int t = 1) {
-        const SDL_PixelFormatDetails* fmt = SDL_GetPixelFormatDetails(s->format);
-        Uint32                        col = SDL_MapRGBA(fmt, nullptr, c.r, c.g, c.b, c.a);
-        SDL_Rect                      rects[4] = {{r.x, r.y, r.w, t},
-                                                  {r.x, r.y + r.h, r.w, t},
-                                                  {r.x, r.y, t, r.h},
-                                                  {r.x + r.w, r.y, t, r.h}};
-        for (auto& rr : rects)
-            SDL_FillSurfaceRect(s, &rr, col);
     }
 
     SDL_Surface* GetBadge(const std::string& text, SDL_Color col) {

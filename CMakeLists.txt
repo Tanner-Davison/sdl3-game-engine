@@ -7,6 +7,15 @@ project(sdl-sandbox
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# ccache — dramatically speeds up rebuilds by caching compiled TUs.
+# Install with: sudo apt install ccache
+find_program(CCACHE_PROGRAM ccache)
+if(CCACHE_PROGRAM)
+    message(STATUS "ccache found: ${CCACHE_PROGRAM}")
+    set(CMAKE_C_COMPILER_LAUNCHER   ${CCACHE_PROGRAM})
+    set(CMAKE_CXX_COMPILER_LAUNCHER ${CCACHE_PROGRAM})
+endif()
+
 # Default to Release if no build type is specified.
 # Release enables -O3 + NDEBUG which can be 3-10x faster than unoptimized debug builds.
 if(NOT CMAKE_BUILD_TYPE)
@@ -31,7 +40,9 @@ set(SOURCES
     src/LevelEditorScene.cpp
     src/EditorPalette.cpp
     src/EditorSurfaceCache.cpp
+    src/EditorCanvasRenderer.cpp
     src/EditorToolbar.cpp
+    src/EditorUIRenderer.cpp
     src/Window.cpp
     src/Rectangle.cpp
     src/UI.cpp
