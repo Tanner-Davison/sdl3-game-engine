@@ -9,7 +9,9 @@ enum class FitMode {
     STRETCH,
     SRCSIZE,
     PRESCALED, // scales the texture dst rect to fill the viewport each frame
-    SCROLL     // image height fills viewport; scrolls horizontally with the camera
+    SCROLL,    // image height fills viewport; scrolls horizontally with the camera
+    FILL       // aspect-preserving fill: never smaller than screen, never over-zoomed
+               // Large images render at 1:1 (centered), small images scale up to fill.
 };
 
 // Convert a level JSON string to the matching FitMode.
@@ -19,7 +21,8 @@ inline FitMode FitModeFromString(const std::string& s) {
     if (s == "stretch") return FitMode::STRETCH;
     if (s == "tile")    return FitMode::PRESCALED;
     if (s == "scroll")  return FitMode::SCROLL;
-    return FitMode::COVER; // default
+    if (s == "fill")    return FitMode::FILL;
+    return FitMode::FILL; // default — aspect-preserving, never over-zoomed
 }
 
 inline const char* FitModeToString(FitMode m) {
@@ -28,6 +31,7 @@ inline const char* FitModeToString(FitMode m) {
         case FitMode::STRETCH:   return "stretch";
         case FitMode::PRESCALED: return "tile";
         case FitMode::SCROLL:    return "scroll";
+        case FitMode::FILL:      return "fill";
         default:                 return "cover";
     }
 }

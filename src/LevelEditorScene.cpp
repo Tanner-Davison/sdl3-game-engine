@@ -1158,9 +1158,11 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                     int bx  = CanvasW() + PALETTE_W - bw - 4;
                     int by2 = TOOLBAR_H + TAB_H + (24 - bh) / 2;
                     if (mx >= bx && mx < bx + bw && my >= by2 && my < by2 + bh) {
-                        // Cycle: cover -> contain -> stretch -> tile -> scroll -> cover
+                        // Cycle: fill -> cover -> contain -> stretch -> tile -> scroll -> fill
                         auto& fm = mLevel.bgFitMode;
-                        if (fm == "cover")
+                        if (fm == "fill")
+                            fm = "cover";
+                        else if (fm == "cover")
                             fm = "contain";
                         else if (fm == "contain")
                             fm = "stretch";
@@ -1169,7 +1171,7 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                         else if (fm == "tile")
                             fm = "scroll";
                         else
-                            fm = "cover";
+                            fm = "fill";
                         // Rebuild background image with new fit mode
                         if (!mLevel.background.empty())
                             background = std::make_unique<Image>(mLevel.background,

@@ -1,5 +1,6 @@
 #include "Image.hpp"
 #include <SDL3_image/SDL_image.h>
+#include <algorithm>
 #include <print>
 
 // ── Construction ──────────────────────────────────────────────────────────────
@@ -90,6 +91,34 @@ SDL_FRect Image::ComputeDest(int rendW, int rendH) const {
             return {(rendW - dw) * 0.5f, (rendH - dh) * 0.5f, dw, dh};
         }
 
+        case FitMode::FILL: {
+            // Aspect-preserving fill that never over-zooms large images.
+            // 1. Compute the minimum scale needed to cover the entire viewport
+            //    (same logic as COVER).
+            // 2. Clamp scale to 1.0 so images larger than the viewport render
+            //    at their native resolution instead of being stretched up.
+            // Result: small images scale up just enough to fill; large images
+            //         sit at 1:1 centred, with any excess cropped equally on
+            //         both sides.
+            float scaleW = (float)rendW / (float)mOrigW;
+            float scaleH = (float)rendH / (float)mOrigH;
+            float cover   = (scaleW > scaleH) ? scaleW : scaleH; // min to cover
+            // Only clamp DOWN to 1.0 when the image is bigger than the viewport.
+            // If both dimensions are smaller we must scale up (cover > 1.0).
+            float scale = (cover > 1.0f) ? cover : cover; // always cover
+            // But limit how much we zoom IN: if the image is bigger than the
+            // screen in both axes, render at 1:1 (scale = 1.0). If it's bigger
+            // in one axis but smaller in the other, we still need to cover, so
+            // 'cover' already gives the right answer.
+            if ((float)mOrigW >= (float)rendW && (float)mOrigH >= (float)rendH)
+                scale = 1.0f; // native res covers the viewport with room to spare
+            else
+                scale = cover; // at least one axis needs scaling up to fill
+            float dw = (float)mOrigW * scale;
+            float dh = (float)mOrigH * scale;
+            return {(rendW - dw) * 0.5f, (rendH - dh) * 0.5f, dw, dh};
+        }
+
         case FitMode::CONTAIN: {
             float srcRatio = (float)mOrigW / (float)mOrigH;
             float dstRatio = (float)rendW  / (float)rendH;
@@ -138,9 +167,17 @@ void Image::RenderScrolling(SDL_Renderer* renderer, float cameraX, float levelW)
     int rendW, rendH;
     SDL_GetRenderOutputSize(renderer, &rendW, &rendH);
 
-    // Scale image so its height exactly fills the viewport.
-    // The displayed width scales proportionally.
-    float scale   = (float)rendH / (float)mOrigH;
+    // Scale image so it fills the viewport without over-zooming.
+    // Use the same FILL philosophy: if the image is already tall enough to
+    // cover rendH at native res, render at 1:1 so it doesn't look zoomed in.
+    // If it's shorter, scale up just enough so height fills the viewport.
+    float scaleH  = (float)rendH / (float)mOrigH;
+    float scaleW  = (float)rendW / (float)mOrigW;
+    // We need height to at least fill the viewport (scaleH), but if the image
+    // natively covers both axes, cap at 1.0 to avoid over-zoom.
+    float scale   = scaleH;
+    if ((float)mOrigH >= (float)rendH && (float)mOrigW >= (float)rendW)
+        scale = std::max(1.0f, std::min(scaleH, scaleW)); // 1:1 if it covers
     float imgDispW = (float)mOrigW * scale; // how wide the image appears on screen
 
     // Scroll: map cameraX across the scrollable range of the image.
