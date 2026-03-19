@@ -1,5 +1,9 @@
 #include "LevelEditorScene.hpp"
 #include "AnimatedTile.hpp"
+#include "EditorCanvasRenderer.hpp"
+#include "EditorFileOps.hpp"
+#include "EditorPopups.hpp"
+#include "EditorUIRenderer.hpp"
 #include "GameScene.hpp"
 #include "SurfaceUtils.hpp"
 #include "TitleScene.hpp"
@@ -9,9 +13,8 @@
 
 namespace fs = std::filesystem;
 
-// ---------------------------------------------------------------------------
-// Internal helpers — delegate to EditorSurfaceCache static methods
-// ---------------------------------------------------------------------------
+// Shims kept for callers inside Load() / ImportPath() that use MakeThumb/LoadPNG
+// directly (folder icon, bg import). These simply forward to the cache statics.
 static SDL_Surface* MakeThumb(SDL_Surface* src, int w, int h) {
     return EditorSurfaceCache::MakeThumb(src, w, h);
 }
@@ -19,37 +22,54 @@ static SDL_Surface* LoadPNG(const fs::path& p) {
     return EditorSurfaceCache::LoadPNG(p);
 }
 
-// RebuildToolbarLayout removed — toolbar layout now lives in EditorToolbar.
-// LevelEditorScene delegates to mToolbar.RebuildLayout() and
-// mToolbar.CreateLabels() in Load().
-
-// --- OpenAnimPicker / CloseAnimPicker --------------------------------------
-void LevelEditorScene::OpenAnimPicker(int tileIdx) {
-    mActionAnimPickerTile = tileIdx;
-    mAnimPickerEntries.clear();
-
-    // "None" entry first — always available to clear any existing assignment
-    mAnimPickerEntries.push_back({"", "None (no death anim)", nullptr});
-
-    // Scan animated_tiles/ for all .json manifests
-    auto manifests = ScanAnimatedTiles();
-    for (const auto& p : manifests) {
-        AnimatedTileDef def;
-        if (!LoadAnimatedTileDef(p.string(), def))
-            continue;
-        SDL_Surface* thumb =
-            mSurfaceCache.GetDestroyAnimThumb(p.string()); // builds & caches 48x48
-        mAnimPickerEntries.push_back({p.string(), def.name, thumb});
-    }
-
-    // Layout: popup centred horizontally over the tile, above or below depending on space.
-    // We don't know window size here, so defer rect computation to Render.
-    // Just mark as open — Render computes mActionAnimPickerRect each frame.
+// --- MakePopupCtx ----------------------------------------------------------
+EditorPopups::Ctx LevelEditorScene::MakePopupCtx() {
+    return EditorPopups::Ctx{
+        .level           = mLevel,
+        .palette         = mPalette,
+        .setStatus       = [this](const std::string& msg) { SetStatus(msg); },
+        .refreshTileView = [this]() { LoadTileView(mPalette.CurrentDir()); },
+        .refreshBgPalette= [this]() { LoadBgPalette(); },
+        .importPath      = [this](const std::string& p) { return ImportPath(p); },
+        .getAnimThumb    = [this](const std::string& p) {
+            return mSurfaceCache.GetDestroyAnimThumb(p);
+        },
+        .sdlWindow       = mWindow ? mWindow->GetRaw() : nullptr,
+        .tileRoot        = TILE_ROOT,
+        .bgRoot          = BG_ROOT,
+    };
 }
 
+// --- ImportPath (delegate to EditorFileOps) --------------------------------
+bool LevelEditorScene::ImportPath(const std::string& srcPath) {
+    EditorFileOps::Ctx ctx{
+        .palette          = mPalette,
+        .cache            = mSurfaceCache,
+        .level            = mLevel,
+        .setStatus        = [this](const std::string& msg) { SetStatus(msg); },
+        .refreshTileView  = [this]() { LoadTileView(mPalette.CurrentDir()); },
+        .refreshBgPalette = [this]() { LoadBgPalette(); },
+        .applyBackground  = [this](int idx) { ApplyBackground(idx); },
+        .switchToTileTool = [this]() {
+            SwitchTool(ToolId::Tile);
+            if (lblTool) lblTool->CreateSurface("Tile");
+        },
+        .palIcon  = PAL_ICON,
+        .palCols  = PAL_COLS,
+        .palW     = PALETTE_W,
+        .tileRoot = TILE_ROOT,
+        .bgRoot   = BG_ROOT,
+    };
+    return EditorFileOps::ImportPath(srcPath, ctx);
+}
+
+// --- OpenAnimPicker / CloseAnimPicker (shims into mPopups) ----------------
+void LevelEditorScene::OpenAnimPicker(int tileIdx) {
+    auto ctx = MakePopupCtx();
+    mPopups.OpenAnimPicker(tileIdx, ctx);
+}
 void LevelEditorScene::CloseAnimPicker() {
-    mActionAnimPickerTile = -1;
-    mAnimPickerEntries.clear();
+    mPopups.CloseAnimPicker();
 }
 
 // --- GetPowerUpRegistry ----------------------------------------------------
@@ -59,8 +79,8 @@ void LevelEditorScene::CloseAnimPicker() {
 //   2. Add a PowerUpType enum value in Components.hpp
 //   3. Handle the id string in GameScene::Spawn() -> PowerUpTag
 //   4. Handle the PowerUpType in MovementSystem / GameScene::Update
-const std::vector<LevelEditorScene::PowerUpEntry>& LevelEditorScene::GetPowerUpRegistry() {
-    static const std::vector<PowerUpEntry> kRegistry = {
+const std::vector<EditorPopups::PowerUpEntry>& LevelEditorScene::GetPowerUpRegistry() {
+    static const std::vector<EditorPopups::PowerUpEntry> kRegistry = {
         {"antigravity", "Anti-Gravity (15s)", 15.0f},
         // Add future power-ups here:
         // {"speedboost",  "Speed Boost (10s)",  10.0f},
@@ -81,8 +101,6 @@ void LevelEditorScene::ApplyBackground(int idx) {
         SetStatus("Background: " + label + "  [" + mLevel.bgFitMode + "]");
     });
 }
-
-
 
 // ─── Load ─────────────────────────────────────────────────────────────────────
 void LevelEditorScene::Load(Window& window) {
@@ -176,6 +194,10 @@ void LevelEditorScene::Load(Window& window) {
     lblTool = std::make_unique<Text>(
         "Pan", SDL_Color{255, 215, 0, 255}, window.GetWidth() - PALETTE_W - 120, 22, 13);
 
+    // Initialize popup subsystem
+    mPopups.powerUpRegistry = &GetPowerUpRegistry();
+    mPopups.movPlatGroupId  = mMovPlatCurGroupId;
+
     // Initialize the default tool
     SwitchTool(ToolId::MoveCam);
 }
@@ -256,120 +278,18 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
     }
 
     // ── Moving-platform popup: text input for speed field ─────────────────────
-    if (mMovPlatSpeedInput) {
-        if (e.type == SDL_EVENT_TEXT_INPUT) {
-            // Only allow digits
-            for (char ch : std::string(e.text.text))
-                if (ch >= '0' && ch <= '9')
-                    mMovPlatSpeedStr += ch;
+    // -- Popup subsystem: movplat speed field, import input, delete confirm,
+    //    anim picker, power-up picker, movplat config clicks
+    {
+        auto pctx = MakePopupCtx();
+        if (mPopups.HandleEvent(e, pctx, mMovPlatIndices))
             return true;
-        }
-        if (e.type == SDL_EVENT_KEY_DOWN) {
-            if (e.key.key == SDLK_BACKSPACE && !mMovPlatSpeedStr.empty()) {
-                mMovPlatSpeedStr.pop_back();
-                return true;
-            }
-            if (e.key.key == SDLK_RETURN || e.key.key == SDLK_KP_ENTER ||
-                e.key.key == SDLK_ESCAPE || e.key.key == SDLK_TAB) {
-                // Commit value
-                if (!mMovPlatSpeedStr.empty()) {
-                    int v            = std::clamp(std::stoi(mMovPlatSpeedStr), 10, 2000);
-                    mMovPlatSpeed    = (float)v;
-                    mMovPlatSpeedStr = std::to_string(v);
-                    // Apply to current session tiles
-                    for (int idx : mMovPlatIndices)
-                        mLevel.tiles[idx].moveSpeed = mMovPlatSpeed;
-                    // Also apply to ALL moving tiles in the current group
-                    for (auto& t : mLevel.tiles) {
-                        if (!t.moving)
-                            continue;
-                        bool inGroup =
-                            (mMovPlatCurGroupId != 0 &&
-                             t.moveGroupId == mMovPlatCurGroupId) ||
-                            std::any_of(mMovPlatIndices.begin(),
-                                        mMovPlatIndices.end(),
-                                        [&](int i) { return &t == &mLevel.tiles[i]; });
-                        if (inGroup)
-                            t.moveSpeed = mMovPlatSpeed;
-                    }
-                }
-                mMovPlatSpeedInput = false;
-                SDL_StopTextInput(mWindow ? mWindow->GetRaw() : nullptr);
-                return true;
-            }
-        }
-        return true; // swallow all other input while field is focused
     }
 
-    // ── Import text input ─────────────────────────────────────────────────────
-    if (mImportInputActive) {
-        if (e.type == SDL_EVENT_TEXT_INPUT) {
-            mImportInputText += e.text.text;
-            return true;
-        }
-        if (e.type == SDL_EVENT_KEY_DOWN) {
-            switch (e.key.key) {
-                case SDLK_ESCAPE:
-                    mImportInputActive = false;
-                    mImportInputText.clear();
-                    SetStatus("Import cancelled");
-                    SDL_StopTextInput(mWindow ? mWindow->GetRaw() : nullptr);
-                    return true;
-                case SDLK_BACKSPACE:
-                    if (!mImportInputText.empty())
-                        mImportInputText.pop_back();
-                    return true;
-                case SDLK_RETURN:
-                case SDLK_KP_ENTER: {
-                    std::string path   = mImportInputText;
-                    mImportInputActive = false;
-                    mImportInputText.clear();
-                    SDL_StopTextInput(mWindow ? mWindow->GetRaw() : nullptr);
-                    if (!path.empty())
-                        ImportPath(path);
-                    return true;
-                }
-                default:
-                    break;
-            }
-        }
-        return true;
-    }
+    // (Import input handled by mPopups.HandleEvent above)
 
     // ── Delete confirmation popup ──────────────────────────────────────────
-    if (mDelConfirmActive) {
-        if (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_ESCAPE) {
-            mDelConfirmActive = false;
-            SetStatus("Delete cancelled");
-            return true;
-        }
-        if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && e.button.button == SDL_BUTTON_LEFT) {
-            int mx = (int)e.button.x, my = (int)e.button.y;
-            if (HitTest(mDelConfirmYes, mx, my)) {
-                std::error_code ec;
-                if (mDelConfirmIsDir)
-                    fs::remove_all(mDelConfirmPath, ec);
-                else
-                    fs::remove(mDelConfirmPath, ec);
-                mDelConfirmActive = false;
-                // Refresh the right palette depending on what was deleted
-                bool wasBg = (mDelConfirmPath.rfind(BG_ROOT, 0) == 0);
-                if (wasBg)
-                    LoadBgPalette();
-                else
-                    LoadTileView(mPalette.CurrentDir());
-                SetStatus((mDelConfirmIsDir ? "Deleted folder: " : "Deleted: ") +
-                          mDelConfirmName);
-                return true;
-            }
-            if (HitTest(mDelConfirmNo, mx, my)) {
-                mDelConfirmActive = false;
-                SetStatus("Delete cancelled");
-                return true;
-            }
-        }
-        return true; // swallow all other input while popup is open
-    }
+    // (Delete confirm handled by mPopups.HandleEvent above)
 
     // ── Pan: middle-mouse drag OR Ctrl + left-mouse drag ────────────────────
     auto startPan = [&](int mx, int my) { mCamera.StartPan(mx, my); };
@@ -530,9 +450,9 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                 for (int idx : mMovPlatIndices)
                     mLevel.tiles[idx].moveRange = mMovPlatRange;
                 SetStatus("MovePlat range=" + std::to_string((int)mMovPlatRange) +
-                          "  spd=" + std::to_string((int)mMovPlatSpeed) +
-                          (mMovPlatLoop ? "  LOOP" : "") +
-                          (mMovPlatTrigger ? "  TRIGGER" : ""));
+                          "  spd=" + std::to_string((int)mPopups.movPlatSpeed) +
+                          (mPopups.movPlatLoop ? "  LOOP" : "") +
+                          (mPopups.movPlatTrigger ? "  TRIGGER" : ""));
             }
         }
     }
@@ -618,14 +538,12 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                 break;
             }
 
-            case SDLK_I:
-                mImportInputActive = true;
-                mImportInputText.clear();
-                SDL_StartTextInput(mWindow ? mWindow->GetRaw() : nullptr);
-                SetStatus(mPalette.ActiveTab() == EditorPalette::Tab::Backgrounds
-                              ? "Import bg path or folder (Enter=go, Esc=cancel):"
-                              : "Import tile path or folder (Enter=go, Esc=cancel):");
+            case SDLK_I: {
+                auto pctx2 = MakePopupCtx();
+                mPopups.OpenImportInput(
+                    mPalette.ActiveTab() == EditorPalette::Tab::Backgrounds, pctx2);
                 break;
+            }
             case SDLK_S:
                 if (e.key.mod & SDL_KMOD_CTRL) {
                     fs::create_directories("levels");
@@ -663,7 +581,7 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                                                  : "Palette visible (Tab to hide)");
                 break;
             case SDLK_ESCAPE:
-                if (mActionAnimPickerTile >= 0) {
+                if (mPopups.animPickerTile >= 0) {
                     CloseAnimPicker();
                     break;
                 }
@@ -740,56 +658,56 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
             //  V 192  50  (vert, long)
             //  V  48  40  (vert, short)
             //  → back to H 96 60
-            if (mMovPlatHoriz && mMovPlatRange == 96 && mMovPlatSpeed == 60 &&
-                !mMovPlatLoop) {
-                mMovPlatHoriz = true;
+            if (mPopups.movPlatHoriz && mMovPlatRange == 96 && mPopups.movPlatSpeed == 60 &&
+                !mPopups.movPlatLoop) {
+                mPopups.movPlatHoriz = true;
                 mMovPlatRange = 48;
-                mMovPlatSpeed = 40;
-                mMovPlatLoop  = false;
-            } else if (mMovPlatHoriz && mMovPlatRange == 48 && !mMovPlatLoop) {
-                mMovPlatHoriz = true;
+                mPopups.movPlatSpeed = 40;
+                mPopups.movPlatLoop  = false;
+            } else if (mPopups.movPlatHoriz && mMovPlatRange == 48 && !mPopups.movPlatLoop) {
+                mPopups.movPlatHoriz = true;
                 mMovPlatRange = 192;
-                mMovPlatSpeed = 80;
-                mMovPlatLoop  = false;
-            } else if (mMovPlatHoriz && mMovPlatRange == 192 && !mMovPlatLoop) {
-                mMovPlatHoriz = false;
+                mPopups.movPlatSpeed = 80;
+                mPopups.movPlatLoop  = false;
+            } else if (mPopups.movPlatHoriz && mMovPlatRange == 192 && !mPopups.movPlatLoop) {
+                mPopups.movPlatHoriz = false;
                 mMovPlatRange = 96;
-                mMovPlatSpeed = 60;
-                mMovPlatLoop  = false;
-            } else if (!mMovPlatHoriz && mMovPlatRange == 96 && !mMovPlatLoop) {
-                mMovPlatHoriz = false;
+                mPopups.movPlatSpeed = 60;
+                mPopups.movPlatLoop  = false;
+            } else if (!mPopups.movPlatHoriz && mMovPlatRange == 96 && !mPopups.movPlatLoop) {
+                mPopups.movPlatHoriz = false;
                 mMovPlatRange = 192;
-                mMovPlatSpeed = 50;
-                mMovPlatLoop  = false;
-            } else if (!mMovPlatHoriz && mMovPlatRange == 192 && !mMovPlatLoop) {
-                mMovPlatHoriz = false;
+                mPopups.movPlatSpeed = 50;
+                mPopups.movPlatLoop  = false;
+            } else if (!mPopups.movPlatHoriz && mMovPlatRange == 192 && !mPopups.movPlatLoop) {
+                mPopups.movPlatHoriz = false;
                 mMovPlatRange = 48;
-                mMovPlatSpeed = 40;
-                mMovPlatLoop  = false;
-            } else if (!mMovPlatLoop) {
-                mMovPlatHoriz   = true;
-                mMovPlatRange   = 1800;
-                mMovPlatSpeed   = 150;
-                mMovPlatLoop    = true;
-                mMovPlatTrigger = true;
+                mPopups.movPlatSpeed = 40;
+                mPopups.movPlatLoop  = false;
+            } else if (!mPopups.movPlatLoop) {
+                mPopups.movPlatHoriz   = true;
+                mMovPlatRange          = 1800;
+                mPopups.movPlatSpeed   = 150;
+                mPopups.movPlatLoop    = true;
+                mPopups.movPlatTrigger = true;
             } else {
-                mMovPlatHoriz   = true;
-                mMovPlatRange   = 96;
-                mMovPlatSpeed   = 60;
-                mMovPlatLoop    = false;
-                mMovPlatTrigger = false;
+                mPopups.movPlatHoriz   = true;
+                mMovPlatRange          = 96;
+                mPopups.movPlatSpeed   = 60;
+                mPopups.movPlatLoop    = false;
+                mPopups.movPlatTrigger = false;
             }
             // Update all tiles already in the group
             for (int idx : mMovPlatIndices) {
-                mLevel.tiles[idx].moveHoriz   = mMovPlatHoriz;
+                mLevel.tiles[idx].moveHoriz   = mPopups.movPlatHoriz;
                 mLevel.tiles[idx].moveRange   = mMovPlatRange;
-                mLevel.tiles[idx].moveSpeed   = mMovPlatSpeed;
-                mLevel.tiles[idx].moveLoop    = mMovPlatLoop;
-                mLevel.tiles[idx].moveTrigger = mMovPlatTrigger;
+                mLevel.tiles[idx].moveSpeed   = mPopups.movPlatSpeed;
+                mLevel.tiles[idx].moveLoop    = mPopups.movPlatLoop;
+                mLevel.tiles[idx].moveTrigger = mPopups.movPlatTrigger;
             }
-            SetStatus(std::string(mMovPlatHoriz ? "H" : "V") +
+            SetStatus(std::string(mPopups.movPlatHoriz ? "H" : "V") +
                       "  range=" + std::to_string((int)mMovPlatRange) + "  spd=" +
-                      std::to_string((int)mMovPlatSpeed) + "  (RClick cycles presets)");
+                      std::to_string((int)mPopups.movPlatSpeed) + "  (RClick cycles presets)");
             return true;
         }
     }
@@ -824,19 +742,19 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
         int mx = (int)e.button.x, my = (int)e.button.y;
 
         // ── Destroy-anim picker — handle clicks inside the popup ──────────────────
-        if (mActionAnimPickerTile >= 0 && !mAnimPickerEntries.empty()) {
-            if (HitTest(mActionAnimPickerRect, mx, my)) {
-                // Re-derive cell geometry (must match Render exactly)
+        // Anim-picker clicks handled by mPopups.HandleEvent fired above.
+        if (false && !mPopups.animPickerEntries.empty()) {
+            if (HitTest(mPopups.animPickerRect, mx, my)) {
                 const int THUMB    = 48;
                 const int ROW_H    = THUMB + 10;
                 const int PAD      = 8;
                 const int COL_W    = THUMB + PAD * 2;
                 const int COLS     = 4;
                 const int TITLE_H  = 28;
-                int       px       = mActionAnimPickerRect.x;
-                int       py       = mActionAnimPickerRect.y;
+                int       px       = mPopups.animPickerRect.x;
+                int       py       = mPopups.animPickerRect.y;
                 int       ey       = py + TITLE_H;
-                int       nEntries = (int)mAnimPickerEntries.size();
+                int       nEntries = (int)mPopups.animPickerEntries.size();
                 for (int i = 0; i < nEntries; i++) {
                     int      col  = i % COLS;
                     int      row  = i / COLS;
@@ -844,13 +762,13 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                     int      ey2  = ey + PAD + row * (ROW_H + PAD);
                     SDL_Rect cell = {ex, ey2, COL_W - PAD, ROW_H};
                     if (HitTest(cell, mx, my)) {
-                        const auto& entry = mAnimPickerEntries[i];
-                        if (mActionAnimPickerTile < (int)mLevel.tiles.size()) {
-                            mLevel.tiles[mActionAnimPickerTile].actionDestroyAnim =
+                        const auto& entry = mPopups.animPickerEntries[i];
+                        if (mPopups.animPickerTile < (int)mLevel.tiles.size()) {
+                            mLevel.tiles[mPopups.animPickerTile].actionDestroyAnim =
                                 entry.path;
                             if (!entry.path.empty())
                                 GetDestroyAnimThumb(entry.path);
-                            SetStatus("Tile " + std::to_string(mActionAnimPickerTile) +
+                            SetStatus("Tile " + std::to_string(mPopups.animPickerTile) +
                                       ": death anim → " +
                                       (entry.path.empty() ? "None" : entry.name));
                         }
@@ -901,42 +819,32 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
 
         // Toolbar
         // Any toolbar click closes the anim picker
-        if (mActionAnimPickerTile >= 0 && my < TOOLBAR_H)
+        if (mPopups.animPickerTile >= 0 && my < TOOLBAR_H)
             CloseAnimPicker();
 
         // Toolbar button dispatch via EditorToolbar::HandleClick
         if (my < TOOLBAR_H) {
             auto click = mToolbar.HandleClick(mx, my);
             if (click.kind == EditorToolbar::ClickResult::Kind::Button) {
-                // Helper: clear selection state when switching to a non-Select tool
-                auto clearSel = [&]() {
-                    // SwitchTool deactivates the old tool, which clears
-                    // SelectTool's state via OnDeactivate.
-                };
                 CloseAnimPicker();
                 switch (click.button) {
                     case TBBtn::Coin:
-                        clearSel();
                         SwitchTool(ToolId::Coin);
                         lblTool->CreateSurface("Coin");
                         return true;
                     case TBBtn::Enemy:
-                        clearSel();
                         SwitchTool(ToolId::Enemy);
                         lblTool->CreateSurface("Enemy");
                         return true;
                     case TBBtn::Tile:
-                        clearSel();
                         SwitchTool(ToolId::Tile);
                         lblTool->CreateSurface("Tile");
                         return true;
                     case TBBtn::Erase:
-                        clearSel();
                         SwitchTool(ToolId::Erase);
                         lblTool->CreateSurface("Erase");
                         return true;
                     case TBBtn::PlayerStart:
-                        clearSel();
                         SwitchTool(ToolId::PlayerStart);
                         lblTool->CreateSurface("Player");
                         return true;
@@ -949,22 +857,18 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                         lblTool->CreateSurface("Pan");
                         return true;
                     case TBBtn::Prop:
-                        clearSel();
                         SwitchTool(ToolId::Prop);
                         lblTool->CreateSurface("Prop");
                         return true;
                     case TBBtn::Ladder:
-                        clearSel();
                         SwitchTool(ToolId::Ladder);
                         lblTool->CreateSurface("Ladder");
                         return true;
                     case TBBtn::Action:
-                        clearSel();
                         SwitchTool(ToolId::Action);
                         lblTool->CreateSurface("Action");
                         return true;
                     case TBBtn::Slope:
-                        clearSel();
                         SwitchTool(ToolId::Slope);
                         lblTool->CreateSurface("Slope");
                         return true;
@@ -977,19 +881,18 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                         lblTool->CreateSurface("Hitbox");
                         return true;
                     case TBBtn::Hazard:
-                        clearSel();
                         SwitchTool(ToolId::Hazard);
                         lblTool->CreateSurface("Hazard");
                         return true;
                     case TBBtn::AntiGrav:
-                        clearSel();
                         SwitchTool(ToolId::AntiGrav);
                         lblTool->CreateSurface("Float");
                         return true;
                     case TBBtn::PowerUp:
                         SwitchTool(ToolId::PowerUp);
-                        mPowerUpPopupOpen = true;
-                        mPowerUpTileIdx   = -1;
+                        mPopups.powerUpOpen    = false;
+                        mPopups.powerUpTileIdx = -1;
+                        mPopups.powerUpRegistry = &GetPowerUpRegistry();
                         lblTool->CreateSurface("PowerUp");
                         SetStatus("PowerUp: click a tile to assign a power-up pickup");
                         return true;
@@ -1001,22 +904,23 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                             if (ts.moveGroupId > maxUsed)
                                 maxUsed = ts.moveGroupId;
                         mMovPlatNextGroupId = maxUsed + 1;
-                        mMovPlatCurGroupId  = mMovPlatNextGroupId++;
+                        mMovPlatCurGroupId     = mMovPlatNextGroupId++;
+                        mPopups.movPlatGroupId = mMovPlatCurGroupId;
                         mMovPlatIndices.clear();
                         for (int i = 0; i < (int)mLevel.tiles.size(); i++) {
                             if (!mLevel.tiles[i].moving)
                                 continue;
-                            const auto& first = mLevel.tiles[i];
-                            mMovPlatHoriz     = first.moveHoriz;
-                            mMovPlatRange     = first.moveRange;
-                            mMovPlatSpeed     = first.moveSpeed;
-                            mMovPlatLoop      = first.moveLoop;
-                            mMovPlatTrigger   = first.moveTrigger;
+                            const auto& first         = mLevel.tiles[i];
+                            mPopups.movPlatHoriz      = first.moveHoriz;
+                            mMovPlatRange              = first.moveRange;
+                            mPopups.movPlatSpeed      = first.moveSpeed;
+                            mPopups.movPlatLoop       = first.moveLoop;
+                            mPopups.movPlatTrigger    = first.moveTrigger;
                             break;
                         }
-                        mMovPlatPopupOpen  = true;
-                        mMovPlatSpeedInput = false;
-                        mMovPlatSpeedStr   = std::to_string((int)mMovPlatSpeed);
+                        mPopups.movPlatOpen       = true;
+                        mPopups.movPlatSpeedInput  = false;
+                        mPopups.movPlatSpeedStr    = std::to_string((int)mPopups.movPlatSpeed);
                         SetStatus(
                             "MovingPlat: click tiles to add. RClick=axis/range. New group "
                             "ID=" +
@@ -1119,12 +1023,11 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
 
                 const auto& item = mPalette.Items()[idx];
 
-                // Delete button hit? open confirm popup instead of deleting immediately
+                // Delete button hit? open confirm popup
                 if (item.delBtn.x >= 0 && HitTest(item.delBtn, mx, my)) {
-                    mDelConfirmActive = true;
-                    mDelConfirmPath   = item.path;
-                    mDelConfirmIsDir  = item.isFolder;
-                    mDelConfirmName   = fs::path(item.path).filename().string();
+                    mPopups.OpenDeleteConfirm(
+                        item.path, item.isFolder,
+                        fs::path(item.path).filename().string());
                     return true;
                 }
 
@@ -1190,11 +1093,9 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                     // Delete button?
                     if (mPalette.BgItems()[idx].delBtn.x >= 0 &&
                         HitTest(mPalette.BgItems()[idx].delBtn, mx, my)) {
-                        mDelConfirmActive = true;
-                        mDelConfirmPath   = mPalette.BgItems()[idx].path;
-                        mDelConfirmIsDir  = false;
-                        mDelConfirmName =
-                            fs::path(mPalette.BgItems()[idx].path).filename().string();
+                        mPopups.OpenDeleteConfirm(
+                            mPalette.BgItems()[idx].path, false,
+                            fs::path(mPalette.BgItems()[idx].path).filename().string());
                     } else {
                         ApplyBackground(idx);
                     }
@@ -1204,96 +1105,7 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
         }
 
         // ── Canvas ─────────────────────────────────────────────────────────────
-        // Moving-platform config popup click handling
-        if (mMovPlatPopupOpen && HitTest(mMovPlatPopupRect, mx, my)) {
-            const int PW      = 280;
-            const int PAD     = 8;
-            const int ROW_H   = 26;
-            const int TITLE_H = 30;
-            const int px      = mMovPlatPopupRect.x;
-            const int py      = mMovPlatPopupRect.y;
-            int       ry      = py + TITLE_H;
-
-            // Row 0: speed field + close button
-            SDL_Rect speedField = {
-                px + PAD + 90, ry + (ROW_H - 20) / 2, PW - PAD * 2 - 90 - 44, 20};
-            SDL_Rect closeBtnR = {px + PW - PAD - 36, ry + (ROW_H - 20) / 2, 36, 20};
-            if (HitTest(speedField, mx, my)) {
-                mMovPlatSpeedInput = true;
-                SDL_StartTextInput(mWindow ? mWindow->GetRaw() : nullptr);
-                return true;
-            }
-            if (HitTest(closeBtnR, mx, my)) {
-                if (!mMovPlatSpeedStr.empty()) {
-                    int v         = std::clamp(std::stoi(mMovPlatSpeedStr), 10, 2000);
-                    mMovPlatSpeed = (float)v;
-                    // Apply to current session tiles
-                    for (int idx : mMovPlatIndices)
-                        mLevel.tiles[idx].moveSpeed = mMovPlatSpeed;
-                    // Also apply to ALL moving tiles in the current group so editing
-                    // an already-placed platform actually takes effect.
-                    for (auto& t : mLevel.tiles) {
-                        if (!t.moving)
-                            continue;
-                        bool inGroup =
-                            (mMovPlatCurGroupId != 0 &&
-                             t.moveGroupId == mMovPlatCurGroupId) ||
-                            std::any_of(mMovPlatIndices.begin(),
-                                        mMovPlatIndices.end(),
-                                        [&](int i) { return &t == &mLevel.tiles[i]; });
-                        if (inGroup)
-                            t.moveSpeed = mMovPlatSpeed;
-                    }
-                }
-                mMovPlatPopupOpen  = false;
-                mMovPlatSpeedInput = false;
-                SDL_StopTextInput(mWindow ? mWindow->GetRaw() : nullptr);
-                return true;
-            }
-            ry += ROW_H + PAD;
-
-            // Row 1: H/V direction toggle
-            SDL_Rect btnH = {px + PAD + 90, ry, 48, ROW_H - 4};
-            SDL_Rect btnV = {px + PAD + 90 + 54, ry, 48, ROW_H - 4};
-            if (HitTest(btnH, mx, my)) {
-                mMovPlatHoriz = true;
-                for (int idx : mMovPlatIndices)
-                    mLevel.tiles[idx].moveHoriz = true;
-                return true;
-            }
-            if (HitTest(btnV, mx, my)) {
-                mMovPlatHoriz = false;
-                for (int idx : mMovPlatIndices)
-                    mLevel.tiles[idx].moveHoriz = false;
-                return true;
-            }
-            ry += ROW_H + PAD;
-
-            // Row 2: Loop (ping-pong) checkbox row
-            SDL_Rect loopRow = {px + PAD, ry, PW - PAD * 2, ROW_H};
-            if (HitTest(loopRow, mx, my)) {
-                mMovPlatLoop = !mMovPlatLoop;
-                if (!mMovPlatLoop)
-                    mMovPlatTrigger = false;
-                for (int idx : mMovPlatIndices) {
-                    mLevel.tiles[idx].moveLoop    = mMovPlatLoop;
-                    mLevel.tiles[idx].moveTrigger = mMovPlatTrigger;
-                }
-                return true;
-            }
-            ry += ROW_H + PAD;
-
-            // Row 3: Move on Touch checkbox row
-            SDL_Rect trigRow = {px + PAD, ry, PW - PAD * 2, ROW_H};
-            if (HitTest(trigRow, mx, my)) {
-                mMovPlatTrigger = !mMovPlatTrigger;
-                for (int idx : mMovPlatIndices)
-                    mLevel.tiles[idx].moveTrigger = mMovPlatTrigger;
-                return true;
-            }
-
-            return true; // absorb all other clicks inside popup
-        }
+        // MovingPlat config popup clicks handled by mPopups.HandleEvent above.
 
         if (my < TOOLBAR_H || mx >= CanvasW())
             return true;
@@ -1306,9 +1118,9 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                 if (auto* tt = dynamic_cast<TileTool*>(mTool.get())) {
                     const auto* selItem = mPalette.SelectedItem();
                     tt->placementInfo   = selItem ? TilePlacementInfo{true,
-                                                                    selItem->isFolder,
-                                                                    selItem->path,
-                                                                    selItem->label}
+                                                                      selItem->isFolder,
+                                                                      selItem->path,
+                                                                      selItem->label}
                                                   : TilePlacementInfo{};
                 }
             }
@@ -1323,13 +1135,12 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
             default:
                 break;
             case ToolId::Action: {
-                // If the picker is open and the click landed outside it, close it
-                // and fall through so the click can act on whatever tile is below.
-                if (mActionAnimPickerTile >= 0) {
-                    if (HitTest(mActionAnimPickerRect, mx, my))
-                        return true; // handled by the picker block above
+                // Picker clicks handled by mPopups.HandleEvent above.
+                // If picker open but click was outside, it's already closed.
+                if (mPopups.animPickerTile >= 0) {
+                    if (HitTest(mPopups.animPickerRect, mx, my))
+                        return true; // consumed by HandleEvent
                     CloseAnimPicker();
-                    // fall through — open picker for the newly clicked tile if applicable
                 }
                 int ti = HitTile(mx, my);
                 if (ti >= 0) {
@@ -1352,64 +1163,21 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                 return true;
             }
             case ToolId::PowerUp: {
-                // Handle PowerUp popup click: close popup if open and click is in it
-                if (mPowerUpPopupOpen && mPowerUpTileIdx >= 0 &&
-                    HitTest(mPowerUpPopupRect, mx, my)) {
-                    // Re-derive cell geometry matching Render
-                    const auto& reg = GetPowerUpRegistry();
-                    const int   PAD = 8, ROW_H = 28, TITLE_H = 32;
-                    int         py = mPowerUpPopupRect.y + TITLE_H;
-                    for (int i = 0; i < (int)reg.size(); i++) {
-                        SDL_Rect row = {mPowerUpPopupRect.x + PAD,
-                                        py + i * (ROW_H + 2),
-                                        mPowerUpPopupRect.w - PAD * 2,
-                                        ROW_H};
-                        if (HitTest(row, mx, my)) {
-                            // Assign this power-up to the tile
-                            auto& t           = mLevel.tiles[mPowerUpTileIdx];
-                            t.powerUp         = true;
-                            t.powerUpType     = reg[i].id;
-                            t.powerUpDuration = reg[i].defaultDuration;
-                            SetStatus("Tile " + std::to_string(mPowerUpTileIdx) +
-                                      " -> PowerUp: " + reg[i].label);
-                            mPowerUpPopupOpen = false;
-                            mPowerUpTileIdx   = -1;
-                            return true;
-                        }
-                    }
-                    // 'None' row (clear)
-                    SDL_Rect noneRow = {mPowerUpPopupRect.x + PAD,
-                                        py + (int)reg.size() * (ROW_H + 2),
-                                        mPowerUpPopupRect.w - PAD * 2,
-                                        ROW_H};
-                    if (HitTest(noneRow, mx, my)) {
-                        mLevel.tiles[mPowerUpTileIdx].powerUp     = false;
-                        mLevel.tiles[mPowerUpTileIdx].powerUpType = "";
-                        SetStatus("Tile " + std::to_string(mPowerUpTileIdx) +
-                                  " -> PowerUp removed");
-                        mPowerUpPopupOpen = false;
-                        mPowerUpTileIdx   = -1;
-                        return true;
-                    }
-                    return true; // absorb
-                }
-                // Click outside popup or no popup open: open/reopen on tile
-                mPowerUpPopupOpen = false;
-                mPowerUpTileIdx   = -1;
-                int ti            = HitTile(mx, my);
+                // PowerUp popup clicks are handled by mPopups.HandleEvent.
+                // Here we handle opening the popup on tile click.
+                // If popup is open, HandleEvent consumed the click already.
+                if (mPopups.powerUpOpen && mPopups.powerUpTileIdx >= 0)
+                    return true; // absorbed by HandleEvent
+                // Open/reopen on tile click
+                mPopups.powerUpOpen    = false;
+                mPopups.powerUpTileIdx = -1;
+                int ti                  = HitTile(mx, my);
                 if (ti >= 0) {
-                    mPowerUpTileIdx   = ti;
-                    mPowerUpPopupOpen = true;
-                    // Position popup near the tile
                     auto [wsx, wsy] = WorldToScreen(mLevel.tiles[ti].x, mLevel.tiles[ti].y);
-                    const auto& reg = GetPowerUpRegistry();
-                    int         ph  = 32 + (int)(reg.size() + 1) * 30 + 8;
-                    int         pw  = 200;
-                    int px2 = std::clamp(wsx, 0, (mWindow ? mWindow->GetWidth() : 800) - pw);
-                    int py2 = std::clamp(wsy + mLevel.tiles[ti].h,
-                                         TOOLBAR_H,
-                                         (mWindow ? mWindow->GetHeight() : 600) - ph);
-                    mPowerUpPopupRect = {px2, py2, pw, ph};
+                    int winW = mWindow ? mWindow->GetWidth()  : 800;
+                    int winH = mWindow ? mWindow->GetHeight() : 600;
+                    mPopups.OpenPowerUpPicker(ti, wsx, wsy + mLevel.tiles[ti].h,
+                                             winW, winH, TOOLBAR_H);
                     SetStatus("Tile " + std::to_string(ti) + ": choose power-up type");
                 } else {
                     SetStatus("PowerUp: click a tile to assign a power-up pickup");
@@ -1430,12 +1198,13 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                         // group
                         mMovPlatCurGroupId =
                             (t.moveGroupId != 0) ? t.moveGroupId : mMovPlatNextGroupId++;
-                        mMovPlatHoriz    = t.moveHoriz;
-                        mMovPlatRange    = t.moveRange;
-                        mMovPlatSpeed    = t.moveSpeed;
-                        mMovPlatLoop     = t.moveLoop;
-                        mMovPlatTrigger  = t.moveTrigger;
-                        mMovPlatSpeedStr = std::to_string((int)mMovPlatSpeed);
+                        mPopups.movPlatGroupId = mMovPlatCurGroupId;
+                        mPopups.movPlatHoriz    = t.moveHoriz;
+                        mMovPlatRange           = t.moveRange;
+                        mPopups.movPlatSpeed    = t.moveSpeed;
+                        mPopups.movPlatLoop     = t.moveLoop;
+                        mPopups.movPlatTrigger  = t.moveTrigger;
+                        mPopups.movPlatSpeedStr = std::to_string((int)mPopups.movPlatSpeed);
                         // Collect all tiles in that group into mMovPlatIndices
                         mMovPlatIndices.clear();
                         for (int i = 0; i < (int)mLevel.tiles.size(); i++) {
@@ -1449,7 +1218,7 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                         }
                         SetStatus("Adopted platform group " +
                                   std::to_string(mMovPlatCurGroupId) +
-                                  "  spd=" + std::to_string((int)mMovPlatSpeed) +
+                                  "  spd=" + std::to_string((int)mPopups.movPlatSpeed) +
                                   "  tiles=" + std::to_string(mMovPlatIndices.size()));
                         return true;
                     }
@@ -1466,11 +1235,11 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                         // Add to current group
                         mMovPlatIndices.push_back(ti);
                         t.moving      = true;
-                        t.moveHoriz   = mMovPlatHoriz;
+                        t.moveHoriz   = mPopups.movPlatHoriz;
                         t.moveRange   = mMovPlatRange;
-                        t.moveSpeed   = mMovPlatSpeed;
-                        t.moveLoop    = mMovPlatLoop;
-                        t.moveTrigger = mMovPlatTrigger;
+                        t.moveSpeed   = mPopups.movPlatSpeed;
+                        t.moveLoop    = mPopups.movPlatLoop;
+                        t.moveTrigger = mPopups.movPlatTrigger;
                         t.movePhase   = 0.0f; // set per-tile via Ctrl+scroll in editor
                         t.moveLoopDir = 1;    // set per-tile via Shift+scroll in editor
                         t.moveGroupId =
@@ -1483,9 +1252,9 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                         SetStatus("Tile " + std::to_string(ti) +
                                   " added to platform group " +
                                   std::to_string(mMovPlatCurGroupId) + "  " +
-                                  (mMovPlatHoriz ? "H" : "V") +
+                                  (mPopups.movPlatHoriz ? "H" : "V") +
                                   "  range=" + std::to_string((int)mMovPlatRange) +
-                                  "  spd=" + std::to_string((int)mMovPlatSpeed));
+                                  "  spd=" + std::to_string((int)mPopups.movPlatSpeed));
                     }
                 }
                 return true;
@@ -1601,16 +1370,13 @@ void LevelEditorScene::Update(float /*dt*/) {
 void LevelEditorScene::Render(Window& window) {
     window.Render();
     SDL_Renderer* ren = window.GetRenderer();
-    // The editor is an SDL_Surface-based pipeline (pixel manipulation, cached
-    // surface transforms, badge blitting). Render to an intermediate surface
-    // then upload to the GPU renderer once per frame.
+
     int          W = mWindow->GetWidth(), H = mWindow->GetHeight();
     SDL_Surface* screen = SDL_CreateSurface(W, H, SDL_PIXELFORMAT_ARGB8888);
     if (!screen) {
         window.Update();
         return;
     }
-    // Transparent initial state so background shows through undrawn areas
     SDL_SetSurfaceBlendMode(screen, SDL_BLENDMODE_BLEND);
     SDL_FillSurfaceRect(
         screen,
@@ -1618,1521 +1384,127 @@ void LevelEditorScene::Render(Window& window) {
         SDL_MapRGBA(SDL_GetPixelFormatDetails(screen->format), nullptr, 0, 0, 0, 0));
     int cw = CanvasW();
 
-    // ── Camera aliases for brevity — mCamera owns these values now ──────────
-    const float mCamX = mCamera.X();
-    const float mCamY = mCamera.Y();
-    const float mZoom = mCamera.Zoom();
-
-    // Background renders directly to the GPU renderer (it's a full-screen image)
-    if (background->GetFitMode() == FitMode::SCROLL)
-        background->RenderScrolling(ren, mCamX, 0.0f); // 0 = use image width as scroll range
-    else
-        background->Render(ren);
-
-    // Shared badge blit helper — hoisted here so it's available throughout Render.
-    auto blitBadge = [&](SDL_Surface* s, int bx, int by) {
-        if (!s)
-            return;
-        SDL_Rect d = {bx, by, s->w, s->h};
-        SDL_BlitSurface(s, nullptr, screen, &d);
-    };
-
-    // Grid — each line's screen position is computed fresh from its world coordinate
-    // so lines always land exactly where tile edges land. Stepping by an integer
-    // pixel count (gridPx) accumulates truncation error; recomputing per-line avoids it.
-    //
-    // Alpha scales with zoom: at 100% zoom lines are fully visible (alpha=20);
-    // as you zoom out they fade so the canvas doesn't become a dense mesh.
-    // At ZOOM_MIN (0.25) alpha bottoms out at ~4 so lines are still faintly there.
-    const SDL_PixelFormatDetails* fmt = SDL_GetPixelFormatDetails(screen->format);
-    {
-        // Map zoom range [ZOOM_MIN..1.0] → alpha [4..20] linearly, clamped.
-        // Above 1.0 (zoomed in) alpha stays at 20 — lines are already very visible.
-        float zoomT = std::clamp(
-            (mZoom - EditorCamera::ZOOM_MIN) / (1.0f - EditorCamera::ZOOM_MIN), 0.0f, 1.0f);
-        Uint8  gridAlpha = (Uint8)(4.0f + zoomT * 16.0f); // 4 at min zoom, 20 at 100%+
-        Uint32 gridCol   = SDL_MapRGBA(fmt, nullptr, 255, 255, 255, gridAlpha);
-
-        int firstCol = (int)std::floor(mCamX / GRID);
-        int firstRow = (int)std::floor(mCamY / GRID);
-        int numCols  = (int)std::ceil(cw / (GRID * mZoom)) + 2;
-        int numRows  = (int)std::ceil(window.GetHeight() / (GRID * mZoom)) + 2;
-        for (int i = 0; i < numCols; i++) {
-            float worldX = (firstCol + i) * (float)GRID;
-            int   sx     = (int)std::round((worldX - mCamX) * mZoom);
-            if (sx < 0 || sx >= cw)
-                continue;
-            SDL_Rect l = {sx, TOOLBAR_H, 1, window.GetHeight() - TOOLBAR_H};
-            SDL_FillSurfaceRect(screen, &l, gridCol);
-        }
-        for (int i = 0; i < numRows; i++) {
-            float worldY = (firstRow + i) * (float)GRID;
-            int   sy     = (int)std::round((worldY - mCamY) * mZoom);
-            if (sy < TOOLBAR_H || sy >= window.GetHeight())
-                continue;
-            SDL_Rect l = {0, sy, cw, 1};
-            SDL_FillSurfaceRect(screen, &l, gridCol);
-        }
-    }
-
-    // Placed tiles — all positions are in world space; subtract camera offset for screen
-    // space
-    for (int ti = 0; ti < (int)mLevel.tiles.size(); ti++) {
-        const auto& t = mLevel.tiles[ti];
-        // Cull tiles fully outside the viewport
-        int tsx = (int)((t.x - mCamX) * mZoom);
-        int tsy = (int)((t.y - mCamY) * mZoom);
-        int tsw = (int)(t.w * mZoom);
-        int tsh = (int)(t.h * mZoom);
-        if (tsx + tsw <= 0 || tsx >= cw || tsy + tsh <= TOOLBAR_H ||
-            tsy >= window.GetHeight())
-            continue;
-        // O(1) cache lookup — no linear search, no IMG_Load per frame
-        SDL_Surface* ts  = mSurfaceCache.FindTileSurface(t.imagePath);
-        SDL_Rect     dst = {tsx, tsy, tsw, tsh};
-        if (ts) {
-            // Rotation: use the per-path rotation cache so we build each
-            // rotated surface at most once and reuse it every frame.
-            SDL_Surface* draw =
-                (t.rotation != 0) ? GetRotated(t.imagePath, ts, t.rotation) : ts;
-            if (t.prop)
-                SDL_SetSurfaceColorMod(draw, 120, 255, 120);
-            if (t.ladder)
-                SDL_SetSurfaceColorMod(draw, 120, 220, 255);
-            if (t.action)
-                SDL_SetSurfaceColorMod(draw, 255, 160, 80);
-            if (t.hazard)
-                SDL_SetSurfaceColorMod(draw, 255, 80, 80);
-            SDL_BlitSurfaceScaled(draw, nullptr, screen, &dst, SDL_SCALEMODE_LINEAR);
-            if (t.prop || t.ladder || t.action || t.hazard)
-                SDL_SetSurfaceColorMod(draw, 255, 255, 255);
-        } else {
-            DrawRect(screen, dst, {80, 80, 120, 200}); // missing asset placeholder
-        }
-        // Outline colour: cyan for ladder, green for prop, orange for action, blue for solid
-        SDL_Color outlineCol = t.ladder   ? SDL_Color{0, 220, 220, 255}
-                               : t.prop   ? SDL_Color{80, 255, 80, 255}
-                               : t.action ? SDL_Color{255, 160, 60, 255}
-                               : t.hazard ? SDL_Color{255, 60, 60, 255}
-                                          : SDL_Color{100, 180, 255, 255};
-        DrawOutline(screen, dst, outlineCol);
-        // ── Stacked top-left badges — each one shifts right so all are visible ──
-        // Order: P → L → A → H → F → M (moving platform handled separately below)
-        {
-            int           bx = tsx + 2; // cursor: advances right as badges are added
-            constexpr int BH = 14, BW = 14, GAP = 2;
-            auto          drawBadge = [&](const char* label, SDL_Color bg, SDL_Color fg) {
-                DrawRect(screen, {bx, tsy + 2, BW, BH}, bg);
-                blitBadge(GetBadge(label, fg), bx + 2, tsy + 2);
-                bx += BW + GAP;
-            };
-            if (t.prop)
-                drawBadge("P", {0, 180, 0, 210}, {255, 255, 255, 255});
-            if (t.ladder)
-                drawBadge("L", {0, 160, 180, 210}, {255, 255, 255, 255});
-            if (t.action) {
-                std::string ab = "A";
-                if (t.actionGroup > 0)
-                    ab += std::to_string(t.actionGroup);
-                if (t.actionHits > 1)
-                    ab += "x" + std::to_string(t.actionHits);
-                int abw = (int)ab.size() * 6 + 4;
-                DrawRect(screen, {bx, tsy + 2, abw, BH}, {200, 100, 0, 200});
-                blitBadge(GetBadge(ab, {255, 255, 255, 255}), bx + 2, tsy + 2);
-                bx += abw + GAP;
-            }
-            if (t.hazard)
-                drawBadge("H", {200, 0, 0, 220}, {255, 255, 255, 255});
-            if (t.antiGravity)
-                drawBadge("F", {0, 180, 200, 220}, {255, 255, 255, 255});
-            if (t.powerUp) {
-                std::string pb  = t.powerUpType.empty() ? "PU" : t.powerUpType.substr(0, 2);
-                int         pw2 = (int)pb.size() * 6 + 4;
-                DrawRect(screen, {bx, tsy + 2, pw2, BH}, {180, 0, 220, 220});
-                DrawOutline(screen, {bx, tsy + 2, pw2, BH}, {255, 80, 255, 255});
-                blitBadge(GetBadge(pb, {255, 255, 255, 255}), bx + 2, tsy + 2);
-                bx += pw2 + GAP;
-            }
-            // slope badge — slightly different shape so keep its own block
-            if (t.slope != SlopeType::None) {
-                std::string badge = (t.slope == SlopeType::DiagUpRight) ? "/" : "\\";
-                if (t.slopeHeightFrac < 0.99f)
-                    badge += std::to_string((int)std::round(t.slopeHeightFrac * 100)) + "%";
-                int bw2 = (int)badge.size() * 6 + 4;
-                DrawRect(screen, {bx, tsy + 2, bw2, BH}, {160, 120, 0, 200});
-                blitBadge(GetBadge(badge, {255, 255, 255, 255}), bx + 2, tsy + 2);
-                bx += bw2 + GAP;
-            }
-            (void)bx; // suppress unused-variable warning if all are off
-        }
-        if (t.action) {
-            // Bottom-right corner: death-anim indicator + group number label.
-            // Shows a thumbnail of the assigned death anim, or a "+" hint when empty.
-            // The group number is shown below the thumbnail so right-click cycling
-            // is immediately visible without needing to read the top-left badge.
-            constexpr int ANIM_BADGE_SZ = 16;
-            int           abx           = tsx + tsw - ANIM_BADGE_SZ - 2;
-            int           aby           = tsy + tsh - ANIM_BADGE_SZ - 2;
-            if (abx > tsx + 14 + 2 && aby > tsy + 14) { // only draw if tile is large enough
-                if (!t.actionDestroyAnim.empty()) {
-                    // Purple tinted box + thumbnail of the first anim frame
-                    DrawRect(screen,
-                             {abx - 1, aby - 1, ANIM_BADGE_SZ + 2, ANIM_BADGE_SZ + 2},
-                             {120, 0, 200, 200});
-                    SDL_Surface* animThumb = GetDestroyAnimThumb(t.actionDestroyAnim);
-                    if (animThumb) {
-                        SDL_Rect dst2 = {abx, aby, ANIM_BADGE_SZ, ANIM_BADGE_SZ};
-                        SDL_BlitSurfaceScaled(
-                            animThumb, nullptr, screen, &dst2, SDL_SCALEMODE_LINEAR);
-                    }
-                    DrawOutline(screen,
-                                {abx - 1, aby - 1, ANIM_BADGE_SZ + 2, ANIM_BADGE_SZ + 2},
-                                {200, 80, 255, 255});
-                } else if (mActiveToolId == ToolId::Action && tsw >= 24 && tsh >= 24) {
-                    // Faint "+anim" hint to signal the tile can accept a drop
-                    DrawRect(
-                        screen, {abx, aby, ANIM_BADGE_SZ, ANIM_BADGE_SZ}, {60, 20, 80, 140});
-                    DrawOutline(screen,
-                                {abx, aby, ANIM_BADGE_SZ, ANIM_BADGE_SZ},
-                                {140, 60, 180, 160});
-                    blitBadge(GetBadge("+", {180, 100, 220, 200}), abx + 4, aby + 3);
-                }
-                // Group number label just to the left of the bottom-right badge.
-                // Always shown on action tiles so right-click cycling is visible.
-                // "G0" = standalone (no group), "G1".."G9" = grouped.
-                if (mActiveToolId == ToolId::Action && tsw >= 40) {
-                    std::string grpStr =
-                        (t.actionGroup == 0) ? "G-" : ("G" + std::to_string(t.actionGroup));
-                    SDL_Color grpCol =
-                        (t.actionGroup == 0)
-                            ? SDL_Color{120, 120, 140, 200} // dim for standalone
-                            : SDL_Color{255, 220, 60, 255}; // bright gold when grouped
-                    SDL_Surface* grpBadge = GetBadge(grpStr, grpCol);
-                    if (grpBadge) {
-                        int gx = abx - grpBadge->w - 3;
-                        int gy = aby + ANIM_BADGE_SZ / 2 - grpBadge->h / 2;
-                        blitBadge(grpBadge, gx, gy);
-                    }
-                }
-            }
-
-            // Drop-hover highlight: bright purple overlay + "Drop anim here" label
-            if (ti == mActionAnimDropHover) {
-                DrawRect(screen, {tsx, tsy, tsw, tsh}, {140, 0, 220, 70});
-                DrawOutline(screen, {tsx, tsy, tsw, tsh}, {200, 80, 255, 255}, 2);
-                blitBadge(GetBadge("Drop anim here", {255, 200, 255, 255}),
-                          tsx + tsw / 2 - 42,
-                          tsy + tsh / 2 - 5);
-            }
-        }
-        if (t.slope != SlopeType::None) {
-            // Draw the actual slope surface line respecting slopeHeightFrac.
-            // High corner is always at tile top (tsy); low corner at tsy+riseH.
-            int riseH = (int)(t.h * t.slopeHeightFrac);
-            int highY = tsy;         // anchored at tile top
-            int lowY  = tsy + riseH; // low corner descends by riseH
-            int lx0, ly0, lx1, ly1;
-            if (t.slope == SlopeType::DiagUpLeft) {
-                lx0 = tsx;
-                ly0 = lowY;
-                lx1 = tsx + t.w;
-                ly1 = highY;
-            } else {
-                lx0 = tsx;
-                ly0 = highY;
-                lx1 = tsx + t.w;
-                ly1 = lowY;
-            }
-            int ddx = lx1 - lx0, ddy = ly1 - ly0;
-            int steps = std::abs(ddx) > std::abs(ddy) ? std::abs(ddx) : std::abs(ddy);
-            if (steps > 0) {
-                float ssx = (float)ddx / steps, ssy = (float)ddy / steps;
-                float ccx = (float)lx0, ccy = (float)ly0;
-                for (int s = 0; s <= steps; ++s) {
-                    DrawRect(screen, {(int)ccx, (int)ccy, 2, 2}, {255, 220, 50, 220});
-                    ccx += ssx;
-                    ccy += ssy;
-                }
-            }
-            // Slope badge is now drawn in the stacked top-left badge block above
-        }
-        if (t.rotation != 0) {
-            std::string rbadge = std::to_string(t.rotation);
-            int         rbw    = 22;
-            int         rbx    = tsx + t.w - rbw - 2;
-            int         rby    = tsy + t.h - 14 - 2;
-            DrawRect(screen, {rbx, rby, rbw, 14}, {60, 60, 180, 200});
-            blitBadge(GetBadge(rbadge, {200, 220, 255, 255}), rbx + 2, rby + 1);
-        }
-    }
-
-    // ── Moving platform tool overlay ───────────────────────────────────────────────────
-    if (mActiveToolId == ToolId::MovingPlat) {
-        // Highlight every moving tile in the level; brighten the current group
-        for (int ti = 0; ti < (int)mLevel.tiles.size(); ti++) {
-            const auto& t = mLevel.tiles[ti];
-            if (!t.moving)
-                continue;
-            int  tsx = (int)((t.x - mCamX) * mZoom), tsy = (int)((t.y - mCamY) * mZoom);
-            int  tsw = (int)(t.w * mZoom), tsh = (int)(t.h * mZoom);
-            bool inCurGroup =
-                std::find(mMovPlatIndices.begin(), mMovPlatIndices.end(), ti) !=
-                mMovPlatIndices.end();
-            // Teal fill for current group, purple for other groups
-            SDL_Color fill =
-                inCurGroup ? SDL_Color{0, 200, 200, 60} : SDL_Color{160, 80, 220, 40};
-            DrawRect(screen, {tsx, tsy, tsw, tsh}, fill);
-            SDL_Color border =
-                inCurGroup ? SDL_Color{0, 255, 255, 220} : SDL_Color{180, 100, 255, 160};
-            DrawOutline(screen, {tsx, tsy, tsw, tsh}, border, 2);
-
-            // Travel path line and ghost tiles.
-            // For grouped platforms, ALL tiles share the same end position (groupOriginX +
-            // range) so the whole group's end ghost moves together as one.
-            int cx = tsx + tsw / 2, cy = tsy + tsh / 2;
-            int sw = (int)(t.w * mZoom), sh = (int)(t.h * mZoom);
-
-            int lineStartX, lineEndX, lineStartY, lineEndY;
-            if (t.moveHoriz) {
-                lineStartX         = tsx;
-                float endWX        = t.x + t.moveRange;
-                int   endWXSnapped = ((int)endWX / GRID) * GRID;
-                lineEndX           = (int)std::round((endWXSnapped - mCamX) * mZoom);
-                DrawRect(screen,
-                         {lineStartX, cy - 1, lineEndX - lineStartX, 2},
-                         {0, 255, 255, 100});
-            } else {
-                lineStartY         = tsy;
-                float endWY        = t.y + t.moveRange;
-                int   endWYSnapped = ((int)endWY / GRID) * GRID;
-                lineEndY           = (int)std::round((endWYSnapped - mCamY) * mZoom);
-                DrawRect(screen,
-                         {cx - 1, lineStartY, 2, lineEndY - lineStartY},
-                         {0, 255, 255, 100});
-            }
-
-            // ── Direction arrow ──────────────────────────────────────────────
-            // Draw a filled triangle on the tile showing start direction.
-            // For loop (ping-pong) platforms also draw a start-position dot.
-            if (t.moveHoriz) {
-                // Arrow drawn at vertical centre of tile, offset from tile centre
-                int acy = tsy + t.h / 2;                  // arrow vertical centre
-                int dir = t.moveLoop ? t.moveLoopDir : 1; // sine always shows right
-                // Arrow tip and base
-                int tipX  = cx + dir * (t.w / 2 + 10); // tip points in travel direction
-                int baseX = tipX - dir * 12;           // base of triangle
-                // Triangle: tip + two base corners
-                // Draw as 3 filled rects approximating a triangle
-                for (int row = 0; row < 7; row++) {
-                    int half = row; // widens from tip to base
-                    int rx   = (dir > 0) ? tipX + row - 7 : tipX - row + 1;
-                    DrawRect(screen, {rx, acy - half, 1, half * 2 + 1}, {255, 220, 0, 220});
-                }
-                // Ghost tiles at start (green) and end (red) of travel line.
-                // Start ghost uses tsx/tsy exactly so it overlaps the real tile perfectly.
-                // End ghost snaps to the nearest grid cell at t.x + moveRange.
-                if (t.moveRange > 0.0f) {
-                    // Start ghost: sits exactly on the real tile
-                    DrawRectAlpha(screen, {tsx, tsy, sw, sh}, {0, 200, 80, 60});
-                    DrawOutline(screen, {tsx, tsy, sw, sh}, {0, 255, 100, 200}, 2);
-                    blitBadge(GetBadge("S", {0, 255, 120, 255}), tsx + 2, tsy + 2);
-                    // End ghost: each tile shows its own end at t.x + moveRange.
-                    // All tiles in a group have the same moveRange so they all shift
-                    // by the same distance -- the whole group's ghosts move together.
-                    float endWX        = t.x + t.moveRange;
-                    int   endWXSnapped = ((int)endWX / GRID) * GRID;
-                    int   endSX        = (int)std::round((endWXSnapped - mCamX) * mZoom);
-                    DrawRectAlpha(screen, {endSX, tsy, sw, sh}, {220, 60, 60, 60});
-                    DrawOutline(screen, {endSX, tsy, sw, sh}, {255, 80, 80, 200}, 2);
-                    blitBadge(GetBadge("E", {255, 100, 100, 255}), endSX + 2, tsy + 2);
-                    lineEndX = endSX;
-                    // Phase tick on line
-                    int phasePx = tsx + (int)((lineEndX - tsx) * t.movePhase);
-                    DrawRect(screen, {phasePx - 1, cy - 12, 2, 24}, {255, 255, 0, 200});
-                    std::string pctStr = std::to_string((int)(t.movePhase * 100)) + "%";
-                    blitBadge(GetBadge(pctStr, {255, 255, 180, 255}), phasePx - 8, cy - 24);
-                }
-            } else {
-                // Vertical arrow at horizontal centre
-                int acx  = tsx + t.w / 2;
-                int dir  = t.moveLoop ? t.moveLoopDir : 1;
-                int tipY = cy + dir * (t.h / 2 + 10);
-                for (int row = 0; row < 7; row++) {
-                    int half = row;
-                    int ry   = (dir > 0) ? tipY + row - 7 : tipY - row + 1;
-                    DrawRect(screen, {acx - half, ry, half * 2 + 1, 1}, {255, 220, 0, 220});
-                }
-                // Ghost tiles at start (green) and end (red) of vertical travel line.
-                // Start ghost uses tsx/tsy exactly. End ghost snaps to grid.
-                if (t.moveRange > 0.0f) {
-                    // Start ghost: sits exactly on the real tile
-                    DrawRectAlpha(screen, {tsx, tsy, sw, sh}, {0, 200, 80, 60});
-                    DrawOutline(screen, {tsx, tsy, sw, sh}, {0, 255, 100, 200}, 2);
-                    blitBadge(GetBadge("S", {0, 255, 120, 255}), tsx + 2, tsy + 2);
-                    // End ghost: each tile at its own t.y + moveRange
-                    float endWY        = t.y + t.moveRange;
-                    int   endWYSnapped = ((int)endWY / GRID) * GRID;
-                    int   endSY        = (int)std::round((endWYSnapped - mCamY) * mZoom);
-                    DrawRectAlpha(screen, {tsx, endSY, sw, sh}, {220, 60, 60, 60});
-                    DrawOutline(screen, {tsx, endSY, sw, sh}, {255, 80, 80, 200}, 2);
-                    blitBadge(GetBadge("E", {255, 100, 100, 255}), tsx + 2, endSY + 2);
-                    lineEndY = endSY;
-                    // Phase tick
-                    int phasePy = tsy + (int)((lineEndY - tsy) * t.movePhase);
-                    DrawRect(screen, {acx - 12, phasePy - 1, 24, 2}, {255, 255, 0, 200});
-                    std::string pctStr = std::to_string((int)(t.movePhase * 100)) + "%";
-                    blitBadge(GetBadge(pctStr, {255, 255, 180, 255}), acx + 8, phasePy - 6);
-                }
-            }
-
-            // "M" badge
-            blitBadge(GetBadge("M", {0, 255, 255, 255}), tsx + 2, tsy + 2);
-            if (t.moveGroupId != 0)
-                blitBadge(GetBadge(std::to_string(t.moveGroupId), {200, 255, 255, 255}),
-                          tsx + 12,
-                          tsy + 2);
-        }
-
-        // Mouse-cursor preview: show what the travel path will look like
-        // for the CURRENT preset before any tiles are placed.
-        {
-            float fmx, fmy;
-            SDL_GetMouseState(&fmx, &fmy);
-            int mx = (int)fmx, my = (int)fmy;
-            if (my >= TOOLBAR_H && mx < cw) {
-                int       range      = (int)mMovPlatRange;
-                SDL_Color previewCol = {0, 255, 200, 160};
-                if (mMovPlatHoriz) {
-                    DrawRect(screen, {mx - range, my - 1, range * 2, 2}, previewCol);
-                    DrawRect(screen, {mx - range - 4, my - 4, 4, 8}, previewCol);
-                    DrawRect(screen, {mx + range, my - 4, 4, 8}, previewCol);
-                } else {
-                    DrawRect(screen, {mx - 1, my - range, 2, range * 2}, previewCol);
-                    DrawRect(screen, {mx - 4, my - range - 4, 8, 4}, previewCol);
-                    DrawRect(screen, {mx - 4, my + range, 8, 4}, previewCol);
-                }
-            }
-        }
-
-        // Param overlay at bottom of canvas
-        std::string paramStr = "MovePlat  " + std::string(mMovPlatHoriz ? "Horiz" : "Vert") +
-                               "  range=" + std::to_string((int)mMovPlatRange) +
-                               "  spd=" + std::to_string((int)mMovPlatSpeed) +
-                               (mMovPlatLoop ? "  LOOP" : "") +
-                               (mMovPlatTrigger ? "  TOUCH" : "") +
-                               "  grp=" + std::to_string(mMovPlatCurGroupId) +
-                               "  tiles=" + std::to_string(mMovPlatIndices.size()) +
-                               "  LClick=add  RClick=cycle preset";
-        DrawRect(screen, {0, TOOLBAR_H + 20, cw, 18}, {10, 30, 50, 210});
-        blitBadge(GetBadge(paramStr, {0, 230, 230, 255}), 6, TOOLBAR_H + 23);
-
-        // Config popup panel
-        if (mMovPlatPopupOpen) {
-            const int PW      = 280;
-            const int PAD     = 8;
-            const int ROW_H   = 26;
-            const int TITLE_H = 30;
-            const int ROWS    = 4; // speed, direction, loop, touch
-            const int PH      = TITLE_H + ROWS * (ROW_H + PAD) + PAD;
-            // Pin to top-right of canvas area
-            int px            = cw - PW - 8;
-            int py            = TOOLBAR_H + 42; // just below the param bar
-            mMovPlatPopupRect = {px, py, PW, PH};
-
-            // Panel background + border
-            DrawRect(screen, {px, py, PW, PH}, {14, 22, 40, 245});
-            DrawOutline(screen, {px, py, PW, PH}, {0, 200, 160, 255}, 2);
-            DrawRect(screen, {px + 1, py + 1, PW - 2, 3}, {0, 200, 160, 255});
-
-            // Title
-            {
-                std::string title =
-                    "Platform Config  (grp " + std::to_string(mMovPlatCurGroupId) + ")";
-                auto [tx, ty] = Text::CenterInRect(title, 12, {px, py + 4, PW, TITLE_H - 4});
-                Text tt(title, SDL_Color{0, 230, 200, 255}, tx, ty, 12);
-                tt.RenderToSurface(screen);
-            }
-
-            int ry = py + TITLE_H;
-
-            // Row 0: Speed
-            {
-                DrawRect(screen, {px + PAD, ry, PW - PAD * 2, ROW_H}, {20, 32, 55, 200});
-                blitBadge(GetBadge("Speed (px/s)", {160, 200, 220, 255}),
-                          px + PAD + 4,
-                          ry + (ROW_H - 10) / 2);
-                // Text input field
-                int       fw      = PW - PAD * 2 - 90 - 44;
-                SDL_Rect  field   = {px + PAD + 90, ry + (ROW_H - 20) / 2, fw, 20};
-                SDL_Color fieldBg = mMovPlatSpeedInput ? SDL_Color{40, 80, 160, 255}
-                                                       : SDL_Color{25, 40, 70, 255};
-                SDL_Color fieldBd = mMovPlatSpeedInput ? SDL_Color{100, 180, 255, 255}
-                                                       : SDL_Color{60, 100, 140, 255};
-                DrawRect(screen, field, fieldBg);
-                DrawOutline(screen, field, fieldBd, 1);
-                std::string disp = mMovPlatSpeedInput ? mMovPlatSpeedStr + "|"
-                                                      : std::to_string((int)mMovPlatSpeed);
-                blitBadge(GetBadge(disp, {220, 240, 255, 255}),
-                          field.x + 4,
-                          field.y + (20 - 10) / 2);
-                // Close button
-                SDL_Rect closeBtn = {px + PW - PAD - 36, ry + (ROW_H - 20) / 2, 36, 20};
-                DrawRect(screen, closeBtn, {60, 30, 30, 220});
-                DrawOutline(screen, closeBtn, {180, 80, 80, 255});
-                blitBadge(
-                    GetBadge("close", {220, 140, 140, 255}), closeBtn.x + 4, closeBtn.y + 4);
-            }
-            ry += ROW_H + PAD;
-
-            // Row 1: Direction H/V toggle
-            {
-                DrawRect(screen, {px + PAD, ry, PW - PAD * 2, ROW_H}, {20, 32, 55, 200});
-                blitBadge(GetBadge("Direction", {160, 200, 220, 255}),
-                          px + PAD + 4,
-                          ry + (ROW_H - 10) / 2);
-                SDL_Rect btnH = {px + PAD + 90, ry + 2, 48, ROW_H - 4};
-                SDL_Rect btnV = {px + PAD + 90 + 54, ry + 2, 48, ROW_H - 4};
-                DrawRect(screen,
-                         btnH,
-                         mMovPlatHoriz ? SDL_Color{0, 160, 255, 255}
-                                       : SDL_Color{30, 40, 60, 220});
-                DrawRect(screen,
-                         btnV,
-                         !mMovPlatHoriz ? SDL_Color{0, 160, 255, 255}
-                                        : SDL_Color{30, 40, 60, 220});
-                DrawOutline(screen, btnH, {0, 120, 200, 255});
-                DrawOutline(screen, btnV, {0, 120, 200, 255});
-                {
-                    auto [hx, hy] = Text::CenterInRect("Horiz", 10, btnH);
-                    blitBadge(GetBadge("Horiz",
-                                       mMovPlatHoriz ? SDL_Color{255, 255, 255, 255}
-                                                     : SDL_Color{120, 160, 200, 255}),
-                              hx,
-                              hy);
-                    auto [vx, vy] = Text::CenterInRect("Vert", 10, btnV);
-                    blitBadge(GetBadge("Vert",
-                                       !mMovPlatHoriz ? SDL_Color{255, 255, 255, 255}
-                                                      : SDL_Color{120, 160, 200, 255}),
-                              vx,
-                              vy);
-                }
-            }
-            ry += ROW_H + PAD;
-
-            // Row 2: Loop (ping-pong) checkbox
-            {
-                DrawRect(screen, {px + PAD, ry, PW - PAD * 2, ROW_H}, {20, 32, 55, 200});
-                blitBadge(GetBadge("Ping-pong loop", {160, 200, 220, 255}),
-                          px + PAD + 4,
-                          ry + (ROW_H - 10) / 2);
-                SDL_Rect cb = {px + PAD + 90, ry + (ROW_H - 16) / 2, 16, 16};
-                DrawRect(
-                    screen,
-                    cb,
-                    mMovPlatLoop ? SDL_Color{0, 180, 120, 255} : SDL_Color{30, 40, 60, 255});
-                DrawOutline(screen, cb, {0, 160, 100, 255});
-                if (mMovPlatLoop)
-                    blitBadge(GetBadge("x", {255, 255, 255, 255}), cb.x + 3, cb.y + 2);
-            }
-            ry += ROW_H + PAD;
-
-            // Row 3: Move on Touch checkbox
-            {
-                DrawRect(screen, {px + PAD, ry, PW - PAD * 2, ROW_H}, {20, 32, 55, 200});
-                blitBadge(GetBadge("Move on touch", {160, 200, 220, 255}),
-                          px + PAD + 4,
-                          ry + (ROW_H - 10) / 2);
-                SDL_Rect cb = {px + PAD + 90, ry + (ROW_H - 16) / 2, 16, 16};
-                DrawRect(screen,
-                         cb,
-                         mMovPlatTrigger ? SDL_Color{255, 160, 0, 255}
-                                         : SDL_Color{30, 40, 60, 255});
-                DrawOutline(screen, cb, {200, 140, 0, 255});
-                if (mMovPlatTrigger)
-                    blitBadge(GetBadge("x", {255, 255, 255, 255}), cb.x + 3, cb.y + 2);
-                // Hint text
-                blitBadge(GetBadge("(waits for player to land)",
-                                   mMovPlatTrigger ? SDL_Color{255, 200, 80, 255}
-                                                   : SDL_Color{80, 100, 120, 255}),
-                          px + PAD + 112,
-                          ry + (ROW_H - 10) / 2);
-            }
-        }
-    } else {
-        // Outside MovingPlat tool: just draw a subtle M badge on moving tiles
-        for (int ti = 0; ti < (int)mLevel.tiles.size(); ti++) {
-            const auto& t = mLevel.tiles[ti];
-            if (!t.moving)
-                continue;
-            int tsx = (int)((t.x - mCamX) * mZoom), tsy = (int)((t.y - mCamY) * mZoom);
-            int tsw = (int)(t.w * mZoom), tsh = (int)(t.h * mZoom);
-            if (tsx + tsw <= 0 || tsx >= cw || tsy + tsh <= TOOLBAR_H ||
-                tsy >= window.GetHeight())
-                continue;
-            DrawRect(screen, {tsx + 2, tsy + 2, 14, 14}, {0, 160, 180, 200});
-            blitBadge(GetBadge("M", {255, 255, 255, 255}), tsx + 4, tsy + 2);
-        }
-    }
-
-    // Coins, enemies, player marker — convert world positions to screen space
-    int  iconS      = std::max(4, (int)(ICON_SIZE * mZoom));
-    auto coinFrames = coinSheet->GetAnimation("Gold_");
-    if (!coinFrames.empty())
-        for (const auto& c : mLevel.coins) {
-            int cx = (int)((c.x - mCamX) * mZoom), cy = (int)((c.y - mCamY) * mZoom);
-            if (cx + iconS <= 0 || cx >= cw || cy + iconS <= TOOLBAR_H ||
-                cy >= window.GetHeight())
-                continue;
-            SDL_Rect s = coinFrames[0], d = {cx, cy, iconS, iconS};
-            SDL_BlitSurfaceScaled(
-                coinSheet->GetSurface(), &s, screen, &d, SDL_SCALEMODE_LINEAR);
-            DrawOutline(screen, d, {255, 215, 0, 255});
-        }
-    auto slimeFrames = enemySheet->GetAnimation("slimeWalk");
-    if (!slimeFrames.empty())
-        for (const auto& en : mLevel.enemies) {
-            int ex = (int)((en.x - mCamX) * mZoom), ey = (int)((en.y - mCamY) * mZoom);
-            if (ex + iconS <= 0 || ex >= cw || ey + iconS <= TOOLBAR_H ||
-                ey >= window.GetHeight())
-                continue;
-            SDL_Rect s = slimeFrames[0], d = {ex, ey, iconS, iconS};
-            SDL_BlitSurfaceScaled(
-                enemySheet->GetSurface(), &s, screen, &d, SDL_SCALEMODE_LINEAR);
-            SDL_Color eOutline =
-                en.antiGravity ? SDL_Color{0, 220, 220, 255} : SDL_Color{255, 80, 80, 255};
-            DrawOutline(screen, d, eOutline);
-            if (en.antiGravity) {
-                DrawRect(screen, {ex + iconS / 2 - 4, ey - 10, 8, 8}, {0, 200, 220, 220});
-                Text fb("F", SDL_Color{255, 255, 255, 255}, ex + iconS / 2 - 3, ey - 11, 8);
-                fb.RenderToSurface(screen);
-            }
-        }
-    // Player marker
-    int pmx = (int)((mLevel.player.x - mCamX) * mZoom),
-        pmy = (int)((mLevel.player.y - mCamY) * mZoom);
-    int pmw = (int)(PLAYER_STAND_WIDTH * mZoom), pmh = (int)(PLAYER_STAND_HEIGHT * mZoom);
-    DrawRect(screen, {pmx, pmy, pmw, pmh}, {0, 200, 80, 180});
-    DrawOutline(screen, {pmx, pmy, pmw, pmh}, {0, 255, 100, 255}, 2);
-
-    // ── Tool overlay dispatch (Select marquee, Resize handles, Hitbox handles) ──
-    if (mTool) {
-        auto ctx = MakeToolCtx();
-        mTool->RenderOverlay(ctx, screen, cw);
-    }
-
-    // Tile ghost — SnapToGrid returns world coords; convert to screen for drawing
-    if (mActiveToolId == ToolId::Tile && mPalette.SelectedItem() &&
-        !mPalette.SelectedItem()->isFolder) {
-        float fmx, fmy;
-        SDL_GetMouseState(&fmx, &fmy);
-        int mx = (int)fmx, my = (int)fmy;
-        if (my >= TOOLBAR_H && mx < cw) {
-            auto [wx, wy] = SnapToGrid(mx, my); // world space
-            // Apply zoom to get screen-space position (was missing mZoom)
-            int      gsx      = (int)((wx - mCamX) * mZoom);
-            int      gsy      = (int)((wy - mCamY) * mZoom);
-            int      gsw      = (int)(GetTileW() * mZoom);
-            int      gsh      = (int)(GetTileH() * mZoom);
-            SDL_Rect ghostDst = {gsx, gsy, gsw, gsh};
-            // Draw the actual selected tile image as a semi-transparent ghost
-            const auto&  selItem   = *mPalette.SelectedItem();
-            SDL_Surface* ghostSurf = mSurfaceCache.FindTileSurface(selItem.path);
-            if (!ghostSurf)
-                ghostSurf = selItem.full;
-            if (ghostSurf) {
-                // Apply ghost rotation using the same rotation cache as placed tiles
-                int curGhostRot = GetGhostRotation();
-                SDL_Surface* drawSurf =
-                    (curGhostRot != 0)
-                        ? GetRotated(selItem.path, ghostSurf, curGhostRot)
-                        : ghostSurf;
-                if (!drawSurf)
-                    drawSurf = ghostSurf; // fallback if rotation failed
-                SDL_SetSurfaceAlphaMod(drawSurf, 140);
-                SDL_BlitSurfaceScaled(
-                    drawSurf, nullptr, screen, &ghostDst, SDL_SCALEMODE_LINEAR);
-                SDL_SetSurfaceAlphaMod(drawSurf, 255);
-            } else {
-                DrawRectAlpha(screen, ghostDst, {100, 180, 255, 60});
-            }
-            // Show rotation badge on ghost so user knows current angle
-            if (GetGhostRotation() != 0) {
-                std::string  rBadge = std::to_string(GetGhostRotation()) + "\xc2\xb0";
-                SDL_Surface* rb     = GetBadge(rBadge, {255, 220, 80, 255});
-                if (rb) {
-                    int      bx = gsx + gsw - rb->w - 3;
-                    int      by = gsy + 3;
-                    SDL_Rect bd = {bx, by, rb->w, rb->h};
-                    SDL_BlitSurface(rb, nullptr, screen, &bd);
-                }
-            }
-            DrawOutline(screen, ghostDst, {100, 180, 255, 200});
-        }
-    }
-
-    // ── Toolbar — spans the full window width including the palette area ─────
-    DrawRect(screen, {0, 0, window.GetWidth(), TOOLBAR_H}, {22, 22, 32, 255});
-    DrawRect(screen, {0, TOOLBAR_H - 1, window.GetWidth(), 1}, {60, 60, 80, 255});
-
-    auto drawBtn =
-        [&](SDL_Rect r, SDL_Color accentColor, Text* lbl, Text* hint, bool active) {
-            SDL_Color bg =
-                active ? SDL_Color{50, 100, 210, 255} : SDL_Color{35, 35, 48, 255};
-            SDL_Color border =
-                active ? SDL_Color{100, 160, 255, 255} : SDL_Color{55, 55, 72, 255};
-            SDL_Color topBar = active ? SDL_Color{130, 190, 255, 255} : accentColor;
-            DrawRect(screen, r, bg);
-            DrawOutline(screen, r, border);
-            DrawRect(screen, {r.x + 1, r.y + 1, r.w - 2, 3}, topBar);
-            if (lbl)
-                lbl->RenderToSurface(screen);
-            if (hint)
-                hint->RenderToSurface(screen);
-        };
-
-    constexpr SDL_Color ACCENT_PLACE    = {80, 160, 255, 255};
-    constexpr SDL_Color ACCENT_MODIFIER = {80, 220, 140, 255};
-    constexpr SDL_Color ACCENT_ACTION   = {200, 160, 60, 255};
-
-    // ── Toolbar button rendering via mToolbar ──────────────────────────────
-    // Map Tool enum to ButtonId for active-state highlighting
-    auto toolToBtn = [&](ToolId t) -> TBBtn {
-        switch (t) {
-            case ToolId::Coin:
-                return TBBtn::Coin;
-            case ToolId::Enemy:
-                return TBBtn::Enemy;
-            case ToolId::Tile:
-                return TBBtn::Tile;
-            case ToolId::Erase:
-                return TBBtn::Erase;
-            case ToolId::PlayerStart:
-                return TBBtn::PlayerStart;
-            case ToolId::Select:
-                return TBBtn::Select;
-            case ToolId::MoveCam:
-                return TBBtn::MoveCam;
-            case ToolId::Prop:
-                return TBBtn::Prop;
-            case ToolId::Ladder:
-                return TBBtn::Ladder;
-            case ToolId::Action:
-                return TBBtn::Action;
-            case ToolId::Slope:
-                return TBBtn::Slope;
-            case ToolId::Resize:
-                return TBBtn::Resize;
-            case ToolId::Hitbox:
-                return TBBtn::Hitbox;
-            case ToolId::Hazard:
-                return TBBtn::Hazard;
-            case ToolId::AntiGrav:
-                return TBBtn::AntiGrav;
-            case ToolId::MovingPlat:
-                return TBBtn::MovingPlat;
-            case ToolId::PowerUp:
-                return TBBtn::PowerUp;
-        }
-        return TBBtn::COUNT;
-    };
-    TBBtn activeBtn = toolToBtn(mActiveToolId);
-
-    // Per-button accent overrides (most inherit from group accent)
-    auto accentFor = [&](TBBtn id) -> SDL_Color {
-        switch (id) {
-            case TBBtn::Hazard:
-                return {220, 60, 60, 255};
-            case TBBtn::AntiGrav:
-                return {0, 180, 200, 255};
-            case TBBtn::MovingPlat:
-                return {0, 200, 160, 255};
-            case TBBtn::PowerUp:
-                return {200, 80, 255, 255};
-            case TBBtn::Clear:
-                return {220, 80, 80, 255};
-            case TBBtn::Play:
-                return {80, 220, 100, 255};
-            case TBBtn::Back:
-                return {120, 100, 160, 255};
-            case TBBtn::Gravity:
-                return (mLevel.gravityMode == GravityMode::WallRun)
-                           ? SDL_Color{100, 140, 255, 255}
-                       : (mLevel.gravityMode == GravityMode::OpenWorld)
-                           ? SDL_Color{80, 220, 120, 255}
-                           : ACCENT_ACTION;
-            default:
-                break;
-        }
-        auto grp = EditorToolbar::GroupOf(id);
-        if (grp == TBGrp::Place)
-            return ACCENT_PLACE;
-        if (grp == TBGrp::Modifier)
-            return ACCENT_MODIFIER;
-        return ACCENT_ACTION;
-    };
-
-    // Render each group
-    static const SDL_Color kGrpAccents[] = {ACCENT_PLACE, ACCENT_MODIFIER, ACCENT_ACTION};
-    static const char*     kGrpPills[]   = {"P", "M", "A"};
-    static const SDL_Color kGrpPillCol[] = {
-        {80, 160, 255, 200}, {80, 220, 140, 200}, {200, 160, 60, 200}};
-
-    for (int gi = 0; gi < static_cast<int>(TBGrp::COUNT); ++gi) {
-        auto grp       = static_cast<TBGrp>(gi);
-        auto pill      = mToolbar.PillRect(grp);
-        bool collapsed = mToolbar.IsCollapsed(grp);
-        int  gx0       = pill.x;
-        int  gx1;
-
-        if (!collapsed) {
-            // Draw all buttons in this group
-            for (const auto& meta : EditorToolbar::AllButtons()) {
-                if (meta.group != grp)
-                    continue;
-                const auto& r = mToolbar.Rect(meta.id);
-                if (r.x < 0)
-                    continue; // off-screen
-                bool isActive = (meta.id == activeBtn);
-                // Action buttons (group 3) are never "active" in the tool sense
-                if (grp == TBGrp::Actions)
-                    isActive = false;
-                drawBtn(r,
-                        accentFor(meta.id),
-                        mToolbar.Label(meta.id),
-                        mToolbar.Hint(meta.id),
-                        isActive);
-            }
-            // Find rightmost button edge for the divider
-            gx1 = gx0;
-            for (const auto& meta : EditorToolbar::AllButtons()) {
-                if (meta.group != grp)
-                    continue;
-                const auto& r = mToolbar.Rect(meta.id);
-                if (r.x >= 0)
-                    gx1 = std::max(gx1, r.x + r.w);
-            }
-            // Divider line after Play button in Actions group
-            if (grp == TBGrp::Actions) {
-                const auto& playR = mToolbar.Rect(TBBtn::Play);
-                if (playR.x >= 0)
-                    DrawRect(
-                        screen,
-                        {playR.x + playR.w + BTN_GAP + GRP_GAP / 2, BTN_Y + 4, 1, BTN_H - 8},
-                        {70, 70, 90, 255});
-            }
-        } else {
-            // Collapsed pill bar
-            SDL_Rect bar = {gx0, BTN_Y, 32, BTN_H};
-            DrawRect(screen, bar, {30, 30, 48, 255});
-            DrawOutline(screen, bar, {55, 55, 75, 255});
-            DrawRect(screen, {bar.x + 1, bar.y + 1, 3, bar.h - 2}, kGrpAccents[gi]);
-            blitBadge(
-                GetBadge(kGrpPills[gi], kGrpPillCol[gi]), bar.x + 10, bar.y + BTN_H / 2 - 5);
-            gx1 = gx0 + 32;
-        }
-
-        // Collapse strip
-        {
-            SDL_Color bg =
-                collapsed ? SDL_Color{70, 70, 120, 255} : SDL_Color{38, 38, 58, 255};
-            DrawRect(screen, pill, bg);
-            DrawOutline(screen,
-                        pill,
-                        {collapsed ? (Uint8)120 : (Uint8)55,
-                         55,
-                         collapsed ? (Uint8)180 : (Uint8)80,
-                         255});
-            DrawRect(screen, {pill.x, pill.y, pill.w, 2}, kGrpAccents[gi]);
-            const char* sym = collapsed ? "+" : "-";
-            SDL_Color   symCol =
-                collapsed ? SDL_Color{200, 220, 255, 255} : SDL_Color{100, 120, 160, 255};
-            blitBadge(GetBadge(sym, symCol), pill.x + pill.w / 2 - 3, pill.y + 2);
-        }
-
-        // Group divider line (not after the last group)
-        if (gi < static_cast<int>(TBGrp::COUNT) - 1)
-            DrawRect(screen,
-                     {gx1 + BTN_GAP + GRP_GAP / 2, BTN_Y + 4, 1, BTN_H - 8},
-                     {70, 70, 90, 255});
-    }
-
-    // Status bar
-    DrawRect(screen, {0, TOOLBAR_H, cw, 20}, {16, 16, 24, 230});
-    if (lblTool) {
-        int tx = window.GetWidth() - PALETTE_W - 8;
-        if (!lblToolPrefix)
-            const_cast<std::unique_ptr<Text>&>(lblToolPrefix) = std::make_unique<Text>(
-                "Tool:", SDL_Color{120, 120, 150, 255}, tx - 80, TOOLBAR_H + 3, 12);
-        lblToolPrefix->RenderToSurface(screen);
-        lblTool->SetPosition(tx - 40, TOOLBAR_H + 3);
-        lblTool->RenderToSurface(screen);
-    }
-    if (lblStatus)
-        lblStatus->RenderToSurface(screen);
-
-    // ── Palette panel ─────────────────────────────────────────────────────────
-    if (mPalette.IsCollapsed()) {
-        // Draw just the narrow toggle tab so user can re-open (starts below toolbar)
-        DrawRect(screen,
-                 {cw, TOOLBAR_H, PALETTE_TAB_W, window.GetHeight() - TOOLBAR_H},
-                 {20, 20, 30, 255});
-        DrawOutline(screen,
-                    {cw, TOOLBAR_H, PALETTE_TAB_W, window.GetHeight() - TOOLBAR_H},
-                    {60, 60, 80, 255});
-        // Toggle button
-        SDL_Rect toggleBtn = {cw, TOOLBAR_H, PALETTE_TAB_W, 28};
-        DrawRect(screen, toggleBtn, {40, 80, 180, 255});
-        DrawOutline(screen, toggleBtn, {80, 140, 255, 255});
-        blitBadge(GetBadge(">", {200, 220, 255, 255}), cw + 4, TOOLBAR_H + 7);
-        const char* lbl =
-            (mPalette.ActiveTab() == EditorPalette::Tab::Tiles) ? "TILES" : "BG";
-        for (int i = 0; lbl[i]; i++) {
-            char buf[2] = {lbl[i], '\0'};
-            blitBadge(GetBadge(buf, {120, 140, 200, 255}), cw + 4, TOOLBAR_H + 40 + i * 13);
-        }
-    } else {
-        // Palette panel starts below the toolbar so the toolbar renders over it
-        DrawRect(screen,
-                 {cw, TOOLBAR_H, PALETTE_W, window.GetHeight() - TOOLBAR_H},
-                 {20, 20, 30, 255});
-        DrawOutline(screen,
-                    {cw, TOOLBAR_H, PALETTE_W, window.GetHeight() - TOOLBAR_H},
-                    {60, 60, 80, 255});
-
-        // Collapse toggle button
-        {
-            SDL_Rect toggleBtn = {cw, TOOLBAR_H, PALETTE_TAB_W, TAB_H};
-            DrawRect(screen, toggleBtn, {30, 50, 140, 255});
-            DrawOutline(screen, toggleBtn, {70, 120, 220, 255});
-            blitBadge(GetBadge("<", {180, 210, 255, 255}), cw + 4, TOOLBAR_H + 7);
-        }
-        // Tab bar
-        {
-            int      panelX = cw + PALETTE_TAB_W, tabW = (PALETTE_W - PALETTE_TAB_W) / 2;
-            bool     ta  = (mPalette.ActiveTab() == EditorPalette::Tab::Tiles);
-            SDL_Rect r0  = {panelX, TOOLBAR_H, tabW, TAB_H},
-                     r1  = {panelX + tabW, TOOLBAR_H, tabW, TAB_H};
-            SDL_Color ac = {50, 100, 200, 255}, ic = {30, 30, 45, 255},
-                      bc = {80, 120, 200, 255};
-            DrawRect(screen, r0, ta ? ac : ic);
-            DrawRect(screen, r1, !ta ? ac : ic);
-            DrawOutline(screen, r0, bc);
-            DrawOutline(screen, r1, bc);
-            auto [tx, ty] = Text::CenterInRect("Tiles", 11, r0);
-            blitBadge(GetBadge("Tiles", {(Uint8)(ta ? 255 : 160), 255, 255, 255}), tx, ty);
-            auto [bx, by] = Text::CenterInRect("Backgrounds", 11, r1);
-            blitBadge(
-                GetBadge("Backgrounds", {(Uint8)(!ta ? 255 : 160), 255, 255, 255}), bx, by);
-        }
-
-        int palY = TOOLBAR_H + TAB_H;
-
-        if (mPalette.ActiveTab() == EditorPalette::Tab::Tiles) {
-            // ── Breadcrumb / header ───────────────────────────────────────────────
-            DrawRect(screen, {cw, palY, PALETTE_W, 44}, {30, 30, 45, 255});
-
-            // Palette header — rebuild only when dir or tile size changes
-            {
-                std::string loc = mPalette.CurrentDir();
-                if (loc.rfind(TILE_ROOT, 0) == 0)
-                    loc = loc.substr(std::string(TILE_ROOT).size());
-                if (loc.empty() || loc == "/")
-                    loc = "/";
-                std::string hdrStr = "Tiles" + loc;
-                int curTileW = GetTileW();
-                if (hdrStr != mLastPalHeaderPath || curTileW != mLastTileSizeW) {
-                    mLastPalHeaderPath = hdrStr;
-                    mLastTileSizeW     = curTileW;
-                    const_cast<std::unique_ptr<Text>&>(lblPalHeader) =
-                        std::make_unique<Text>(
-                            hdrStr, SDL_Color{200, 200, 220, 255}, cw + 4, palY + 4, 10);
-                    const_cast<std::unique_ptr<Text>&>(lblPalHint1) = std::make_unique<Text>(
-                        "Size: " + std::to_string(curTileW) + "  Esc=up  Click=enter",
-                        SDL_Color{100, 120, 140, 255},
-                        cw + 4,
-                        palY + 18,
-                        9);
-                    if (!lblPalHint2)
-                        const_cast<std::unique_ptr<Text>&>(lblPalHint2) =
-                            std::make_unique<Text>("Click folder to open",
-                                                   SDL_Color{100, 120, 140, 255},
-                                                   cw + 4,
-                                                   palY + 30,
-                                                   9);
-                }
-                if (lblPalHeader)
-                    lblPalHeader->RenderToSurface(screen);
-                if (lblPalHint1)
-                    lblPalHint1->RenderToSurface(screen);
-                if (lblPalHint2)
-                    lblPalHint2->RenderToSurface(screen);
-            }
-            palY += 44;
-
-            // Grid of items
-            constexpr int PAD = 4, LBL_H = 14;
-            const int     cellW   = (PALETTE_W - PAD * (PAL_COLS + 1)) / PAL_COLS;
-            const int     cellH   = cellW + LBL_H;
-            const int     itemH   = cellH + PAD;
-            const int     visRows = (window.GetHeight() - palY) / itemH;
-            const int     startI  = mPalette.TileScroll() * PAL_COLS;
-            const int     endI =
-                std::min(startI + (visRows + 1) * PAL_COLS, (int)mPalette.Items().size());
-
-            for (int i = startI; i < endI; i++) {
-                int         col  = (i - startI) % PAL_COLS;
-                int         row  = (i - startI) / PAL_COLS;
-                int         ix   = cw + PAD + col * (cellW + PAD);
-                int         iy   = palY + PAD + row * itemH;
-                const auto& item = mPalette.Items()[i];
-                bool        sel  = (i == mPalette.SelectedTile() && !item.isFolder &&
-                            mActiveToolId == ToolId::Tile);
-
-                SDL_Rect cell = {ix, iy, cellW, cellH};
-
-                if (item.isFolder) {
-                    // ── Folder cell: warm amber tint ──────────────────────────────
-                    SDL_Color folderBg  = (item.label.rfind("◀", 0) == 0)
-                                              ? SDL_Color{35, 50, 35, 220}
-                                             // back arrow: greenish
-                                              : SDL_Color{55, 45, 20, 220}; // folder: amber
-                    SDL_Color folderBdr = (item.label.rfind("◀", 0) == 0)
-                                              ? SDL_Color{80, 200, 80, 255}
-                                              : SDL_Color{200, 160, 60, 255};
-                    DrawRect(screen, cell, folderBg);
-                    DrawOutline(screen, cell, folderBdr);
-
-                    // Optional preview thumbnail (first PNG inside folder)
-                    if (item.thumb) {
-                        SDL_Rect imgDst = {ix + 1, iy + 1, cellW - 2, cellW - 2};
-                        SDL_SetSurfaceColorMod(
-                            item.thumb, 120, 100, 60); // darken for folder feel
-                        SDL_BlitSurfaceScaled(
-                            item.thumb, nullptr, screen, &imgDst, SDL_SCALEMODE_LINEAR);
-                        SDL_SetSurfaceColorMod(item.thumb, 255, 255, 255);
-                    } else {
-                        // Folder icon: simple rectangle grid visual
-                        DrawRect(screen,
-                                 {ix + cellW / 2 - 14, iy + 8, 28, 20},
-                                 {200, 160, 60, 180});
-                        DrawRect(screen,
-                                 {ix + cellW / 2 - 14, iy + 4, 12, 8},
-                                 {200, 160, 60, 180});
-                    }
-
-                    // Label
-                    std::string lbl = item.label;
-                    if ((int)lbl.size() > 9)
-                        lbl = lbl.substr(0, 8) + "~";
-                    blitBadge(GetBadge(lbl, {220, 180, 80, 255}), ix + 2, iy + cellW + 2);
-
-                    // ── Delete button (skip "◀ Back" entry) ─────────────────────
-                    if (item.label.rfind("◄", 0) != 0) {
-                        constexpr int DEL_SZ = 14;
-                        SDL_Rect      db = {ix + cellW - DEL_SZ - 1, iy + 1, DEL_SZ, DEL_SZ};
-                        const_cast<PaletteItem&>(item).delBtn = db;
-                        DrawRect(screen, db, {140, 30, 30, 220});
-                        DrawOutline(screen, db, {200, 60, 60, 255});
-                        {
-                            SDL_Surface* xs = GetBadge("x", {255, 180, 180, 255});
-                            if (xs)
-                                blitBadge(xs,
-                                          db.x + (db.w - xs->w) / 2,
-                                          db.y + (db.h - xs->h) / 2);
-                        }
-                    }
-
-                } else {
-                    // ── File cell ─────────────────────────────────────────────────
-                    DrawRect(
-                        screen,
-                        cell,
-                        sel ? SDL_Color{50, 100, 200, 220} : SDL_Color{35, 35, 55, 220});
-                    DrawOutline(
-                        screen,
-                        cell,
-                        sel ? SDL_Color{100, 180, 255, 255} : SDL_Color{55, 55, 80, 255});
-
-                    SDL_Surface* ts = item.thumb ? item.thumb : item.full;
-                    if (ts) {
-                        SDL_Rect imgDst = {ix + 1, iy + 1, cellW - 2, cellW - 2};
-                        SDL_BlitSurfaceScaled(
-                            ts, nullptr, screen, &imgDst, SDL_SCALEMODE_LINEAR);
-                    } else
-                        DrawRect(screen,
-                                 {ix + 1, iy + 1, cellW - 2, cellW - 2},
-                                 {60, 40, 80, 255});
-
-                    std::string lbl = item.label;
-                    if ((int)lbl.size() > 9)
-                        lbl = lbl.substr(0, 8) + "~";
-                    SDL_Color lc = {(Uint8)(sel ? 255 : 170),
-                                    (Uint8)(sel ? 255 : 170),
-                                    (Uint8)(sel ? 255 : 190),
-                                    255};
-                    blitBadge(GetBadge(lbl, lc), ix + 2, iy + cellW + 2);
-
-                    // ── Delete button (top-right corner) ──────────────────────────
-                    constexpr int DEL_SZ = 14;
-                    SDL_Rect      db     = {ix + cellW - DEL_SZ - 1, iy + 1, DEL_SZ, DEL_SZ};
-                    const_cast<PaletteItem&>(item).delBtn = db;
-                    DrawRect(screen, db, {140, 30, 30, 220});
-                    DrawOutline(screen, db, {200, 60, 60, 255});
-                    {
-                        SDL_Surface* xs = GetBadge("x", {255, 180, 180, 255});
-                        if (xs)
-                            blitBadge(
-                                xs, db.x + (db.w - xs->w) / 2, db.y + (db.h - xs->h) / 2);
-                    }
-                }
-            }
-
-            // Scroll indicator
-            int totalRows = ((int)mPalette.Items().size() + PAL_COLS - 1) / PAL_COLS;
-            if (totalRows > visRows) {
-                float pct = (float)mPalette.TileScroll() / std::max(1, totalRows - visRows);
-                int   sh  = std::max(
-                    20, (int)((window.GetHeight() - palY) * visRows / (float)totalRows));
-                int sy2 = palY + (int)((window.GetHeight() - palY - sh) * pct);
-                DrawRect(screen, {cw + PALETTE_W - 4, sy2, 3, sh}, {100, 150, 255, 180});
-            }
-
-        } else {
-            // ── Backgrounds palette ───────────────────────────────────────────────
-            DrawRect(screen, {cw, palY, PALETTE_W, 24}, {30, 30, 45, 255});
-            if (!lblBgHeader)
-                const_cast<std::unique_ptr<Text>&>(lblBgHeader) =
-                    std::make_unique<Text>("Backgrounds  (I=import)",
-                                           SDL_Color{200, 200, 220, 255},
-                                           cw + 4,
-                                           palY + 6,
-                                           10);
-            if (lblBgHeader)
-                lblBgHeader->RenderToSurface(screen);
-            // Fit-mode cycle button — right-aligned in the header strip
-            {
-                const char* fitLabel = mLevel.bgFitMode.c_str();
-                int         bw = 54, bh = 16;
-                int         bx  = cw + PALETTE_W - bw - 4;
-                int         by2 = palY + (24 - bh) / 2;
-                DrawRect(screen, {bx, by2, bw, bh}, {50, 60, 100, 230});
-                DrawOutline(screen, {bx, by2, bw, bh}, {100, 140, 220, 255});
-                blitBadge(GetBadge(fitLabel, {180, 210, 255, 255}), bx + 3, by2 + 3);
-            }
-            palY += 24;
-
-            constexpr int PAD = 4, LBL_H = 16;
-            const int     thumbW = PALETTE_W - PAD * 2;
-            const int     thumbH = thumbW / 2;
-            const int     itemH  = thumbH + LBL_H + PAD;
-            int           vis    = (window.GetHeight() - palY) / itemH;
-            int           startI = mPalette.BgScroll();
-            int           endI = std::min(startI + vis + 1, (int)mPalette.BgItems().size());
-
-            for (int i = startI; i < endI; i++) {
-                int      iy   = palY + PAD + (i - startI) * itemH;
-                bool     sel  = (i == mPalette.SelectedBg());
-                SDL_Rect cell = {cw + PAD, iy, thumbW, thumbH + LBL_H};
-                DrawRect(screen,
-                         cell,
-                         sel ? SDL_Color{50, 100, 200, 220} : SDL_Color{35, 35, 55, 220});
-                DrawOutline(screen,
-                            cell,
-                            sel ? SDL_Color{100, 220, 255, 255} : SDL_Color{55, 55, 80, 255},
-                            sel ? 2 : 1);
-                SDL_Rect imgDst = {cw + PAD + 1, iy + 1, thumbW - 2, thumbH - 2};
-                if (mPalette.BgItems()[i].thumb)
-                    SDL_BlitSurfaceScaled(mPalette.BgItems()[i].thumb,
-                                          nullptr,
-                                          screen,
-                                          &imgDst,
-                                          SDL_SCALEMODE_LINEAR);
-                else
-                    DrawRect(screen, imgDst, {40, 40, 70, 255});
-                std::string lbl = mPalette.BgItems()[i].label;
-                if ((int)lbl.size() > 14)
-                    lbl = lbl.substr(0, 13) + "~";
-                SDL_Color lc = {(Uint8)(sel ? 255 : 170),
-                                (Uint8)(sel ? 255 : 170),
-                                (Uint8)(sel ? 255 : 190),
-                                255};
-                blitBadge(GetBadge(lbl, lc), cw + PAD + 2, iy + thumbH + 2);
-                // Delete button
-                constexpr int DEL_SZ = 14;
-                SDL_Rect      db = {cw + PAD + thumbW - DEL_SZ - 1, iy + 1, DEL_SZ, DEL_SZ};
-                mPalette.BgItems()[i].delBtn = db;
-                DrawRect(screen, db, {140, 30, 30, 220});
-                DrawOutline(screen, db, {200, 60, 60, 255});
-                {
-                    SDL_Surface* xs = GetBadge("x", {255, 180, 180, 255});
-                    if (xs)
-                        blitBadge(xs, db.x + (db.w - xs->w) / 2, db.y + (db.h - xs->h) / 2);
-                }
-            }
-            if ((int)mPalette.BgItems().size() > vis) {
-                float pct = (float)mPalette.BgScroll() /
-                            std::max(1, (int)mPalette.BgItems().size() - vis);
-                int sh  = std::max(20,
-                                  (int)((window.GetHeight() - palY) * vis /
-                                        (float)mPalette.BgItems().size()));
-                int sy2 = palY + (int)((window.GetHeight() - palY - sh) * pct);
-                DrawRect(screen, {cw + PALETTE_W - 4, sy2, 3, sh}, {100, 150, 255, 180});
-            }
-        }
-
-    } // end palette expanded
-
-    // ── Bottom hint bar ────────────────────────────────────────────────────────
-    DrawRect(screen, {0, window.GetHeight() - 22, cw, 22}, {16, 16, 24, 220});
-    {
-        int tc = (int)mLevel.tiles.size(), cc = (int)mLevel.coins.size(),
-            ec = (int)mLevel.enemies.size();
-        if (tc != mLastTileCount || cc != mLastCoinCount || ec != mLastEnemyCount) {
-            mLastTileCount  = tc;
-            mLastCoinCount  = cc;
-            mLastEnemyCount = ec;
-            const_cast<std::unique_ptr<Text>&>(lblStatusBar) =
-                std::make_unique<Text>(std::to_string(cc) + " coins  " + std::to_string(ec) +
-                                           " enemies  " + std::to_string(tc) + " tiles",
-                                       SDL_Color{120, 120, 150, 255},
-                                       8,
-                                       window.GetHeight() - 18,
-                                       11);
-        }
-        if (lblStatusBar)
-            lblStatusBar->RenderToSurface(screen);
-    }
-    {
-        int cx = (int)mCamX, cy = (int)mCamY;
-        if (cx != mLastCamX || cy != mLastCamY) {
-            mLastCamX                                     = cx;
-            mLastCamY                                     = cy;
-            const_cast<std::unique_ptr<Text>&>(lblCamPos) = std::make_unique<Text>(
-                "Cam: " + std::to_string(cx) + "," + std::to_string(cy),
-                SDL_Color{70, 70, 90, 255},
-                cw - 100,
-                window.GetHeight() - 18,
-                11);
-        }
-        if (lblCamPos)
-            lblCamPos->RenderToSurface(screen);
-    }
-    // Rebuild hint — tool-specific for Action, generic otherwise
-    {
-        std::string hint;
-        if (mActiveToolId == ToolId::Action) {
-            hint =
-                "LClick:toggle action  Scroll:adjust hits  RClick:cycle group or clear anim "
-                " Drop .json:assign death anim";
-        } else {
-            hint = "RClick:rotate  MMB:pan  Ctrl+Scroll:zoom(" +
-                   std::to_string((int)(mZoom * 100)) +
-                   "%)  G:Mode  Ctrl+S:Save  Ctrl+Z:Undo";
-        }
-        const_cast<std::unique_ptr<Text>&>(lblBottomHint) = std::make_unique<Text>(
-            hint, SDL_Color{70, 70, 90, 255}, cw / 2 - 200, window.GetHeight() - 18, 11);
-    }
-    if (lblBottomHint)
-        lblBottomHint->RenderToSurface(screen);
-
-    // ── Destroy-anim picker popup ─────────────────────────────────────────────────
-    if (mActionAnimPickerTile >= 0 && mActionAnimPickerTile < (int)mLevel.tiles.size() &&
-        !mAnimPickerEntries.empty()) {
-        const auto& tgt      = mLevel.tiles[mActionAnimPickerTile];
-        const int   THUMB    = 48;
-        const int   ROW_H    = THUMB + 10; // thumb + label below
-        const int   PAD      = 8;
-        const int   COL_W    = THUMB + PAD * 2;
-        const int   COLS     = 4;
-        const int   nEntries = (int)mAnimPickerEntries.size();
-        const int   ROWS     = (nEntries + COLS - 1) / COLS;
-        const int   TITLE_H  = 28;
-        const int   HINT_H   = 16;
-        const int   PW       = COL_W * COLS + PAD;
-        const int   PH       = TITLE_H + ROWS * (ROW_H + PAD) + PAD + HINT_H;
-
-        // Centre horizontally over the tile, position vertically so it stays on screen
-        int tileSx = (int)((tgt.x - mCamX) * mZoom);
-        int tileSy = (int)((tgt.y - mCamY) * mZoom);
-        int tileSw = (int)(tgt.w * mZoom);
-        int tileSh = (int)(tgt.h * mZoom);
-        int px     = tileSx + tileSw / 2 - PW / 2;
-        int py     = tileSy + tileSh + 6; // prefer below the tile
-        // Clamp horizontally
-        px = std::max(4, std::min(px, cw - PW - 4));
-        // If popup would go off the bottom, put it above the tile instead
-        if (py + PH > window.GetHeight() - 30)
-            py = tileSy - PH - 6;
-        py = std::max(TOOLBAR_H + 4, py);
-
-        mActionAnimPickerRect = {px, py, PW, PH};
-
-        // Panel background
-        DrawRect(screen, {px, py, PW, PH}, {18, 14, 28, 245});
-        DrawOutline(screen, {px, py, PW, PH}, {160, 80, 255, 255}, 2);
-        // Accent bar on top
-        DrawRect(screen, {px + 1, py + 1, PW - 2, 3}, {160, 80, 255, 255});
-
-        // Title
-        {
-            std::string title =
-                "Death Animation  — Tile " + std::to_string(mActionAnimPickerTile);
-            auto [tx, ty] = Text::CenterInRect(title, 12, {px, py + 4, PW, TITLE_H - 4});
-            Text t(title, SDL_Color{200, 160, 255, 255}, tx, ty, 12);
-            t.RenderToSurface(screen);
-        }
-
-        // Entries grid
-        int ey = py + TITLE_H;
-        for (int i = 0; i < nEntries; i++) {
-            const auto& entry = mAnimPickerEntries[i];
-            int         col   = i % COLS;
-            int         row   = i / COLS;
-            int         ex    = px + PAD + col * COL_W;
-            int         ey2   = ey + PAD + row * (ROW_H + PAD);
-
-            SDL_Rect cell = {ex, ey2, COL_W - PAD, ROW_H};
-
-            // Highlight currently-assigned anim
-            bool      isCurrent = (entry.path == tgt.actionDestroyAnim);
-            SDL_Color cellBg =
-                isCurrent ? SDL_Color{80, 20, 130, 220} : SDL_Color{35, 28, 50, 200};
-            SDL_Color cellBdr =
-                isCurrent ? SDL_Color{200, 100, 255, 255} : SDL_Color{80, 60, 110, 200};
-            DrawRect(screen, cell, cellBg);
-            DrawOutline(screen, cell, cellBdr);
-
-            // Thumbnail
-            SDL_Rect thumbDst = {ex + (COL_W - PAD - THUMB) / 2, ey2 + 2, THUMB, THUMB};
-            if (entry.thumb) {
-                SDL_BlitSurfaceScaled(
-                    entry.thumb, nullptr, screen, &thumbDst, SDL_SCALEMODE_LINEAR);
-            } else {
-                // "None" — draw a crossed-out box
-                DrawRect(screen, thumbDst, {50, 40, 60, 200});
-                DrawOutline(screen, thumbDst, {100, 80, 120, 255});
-                // X mark
-                for (int d = 0; d < THUMB; d++) {
-                    DrawRect(
-                        screen, {thumbDst.x + d, thumbDst.y + d, 2, 2}, {120, 80, 140, 200});
-                    DrawRect(screen,
-                             {thumbDst.x + THUMB - 1 - d, thumbDst.y + d, 2, 2},
-                             {120, 80, 140, 200});
-                }
-            }
-
-            // Label (truncated)
-            std::string lbl = entry.name;
-            if ((int)lbl.size() > 8)
-                lbl = lbl.substr(0, 7) + "~";
-            SDL_Color lblCol =
-                isCurrent ? SDL_Color{255, 200, 255, 255} : SDL_Color{160, 140, 180, 255};
-            SDL_Surface* lblSurf = GetBadge(lbl, lblCol);
-            if (lblSurf) {
-                int lx = ex + (COL_W - PAD - lblSurf->w) / 2;
-                blitBadge(lblSurf, lx, ey2 + THUMB + 4);
-            }
-
-            // Current-assignment checkmark badge
-            if (isCurrent) {
-                DrawRect(
-                    screen, {cell.x + cell.w - 14, cell.y + 1, 13, 13}, {160, 60, 255, 240});
-                blitBadge(GetBadge("\xe2\x9c\x93", {255, 255, 255, 255}),
-                          cell.x + cell.w - 12,
-                          cell.y + 2);
-            }
-        }
-
-        // Bottom hint
-        int hy = py + PH - HINT_H + 2;
-        blitBadge(
-            GetBadge("Click to assign  •  RClick tile = remove action  •  Esc to close",
-                     {100, 80, 130, 255}),
-            px + PAD,
-            hy);
-
-        // Handle picker clicks — we need to do this in Render because we compute
-        // rects here. Check current mouse button state.
-        float  fmx, fmy;
-        Uint32 mbState = SDL_GetMouseState(&fmx, &fmy);
-        // We only act on a fresh click; detect via a static latch that resets when button is
-        // up. Simpler: handle in HandleEvent instead — but we need the rects. So we store
-        // the rects and handle in HandleEvent with a "picker click" path that re-derives
-        // cells. (Handled in HandleEvent block below — picker rect is now set every frame.)
-        (void)mbState;
-    }
-
-    // ── PowerUp picker popup ────────────────────────────────────────────────────
-    if (mPowerUpPopupOpen && mPowerUpTileIdx >= 0 &&
-        mPowerUpTileIdx < (int)mLevel.tiles.size()) {
-        const auto& reg     = GetPowerUpRegistry();
-        const int   PAD     = 8;
-        const int   ROW_H   = 28;
-        const int   TITLE_H = 32;
-        const int   PW      = mPowerUpPopupRect.w;
-        const int   PH      = mPowerUpPopupRect.h;
-        const int   px      = mPowerUpPopupRect.x;
-        const int   py      = mPowerUpPopupRect.y;
-
-        DrawRectAlpha(screen, {px, py, PW, PH}, {15, 20, 40, 240});
-        DrawOutline(screen, {px, py, PW, PH}, {80, 220, 255, 255}, 2);
-        DrawRect(screen, {px + 1, py + 1, PW - 2, 3}, {80, 220, 255, 255});
-
-        // Title
-        {
-            std::string t = "Power-Up  — Tile " + std::to_string(mPowerUpTileIdx);
-            auto [tx, ty] = Text::CenterInRect(t, 11, {px, py + 4, PW, TITLE_H - 4});
-            Text lbl(t, SDL_Color{80, 220, 255, 255}, tx, ty, 11);
-            lbl.RenderToSurface(screen);
-        }
-
-        int               ry      = py + TITLE_H;
-        const std::string curType = mLevel.tiles[mPowerUpTileIdx].powerUpType;
-
-        // Power-up entries
-        for (int i = 0; i < (int)reg.size(); i++) {
-            bool     isCur = (mLevel.tiles[mPowerUpTileIdx].powerUp && curType == reg[i].id);
-            SDL_Rect row   = {px + PAD, ry + i * (ROW_H + 2), PW - PAD * 2, ROW_H};
-            DrawRect(screen,
-                     row,
-                     isCur ? SDL_Color{20, 80, 160, 220} : SDL_Color{30, 35, 55, 200});
-            DrawOutline(screen,
-                        row,
-                        isCur ? SDL_Color{80, 180, 255, 255} : SDL_Color{50, 60, 90, 200});
-            Text lbl(reg[i].label, SDL_Color{200, 240, 255, 255}, row.x + 6, row.y + 7, 11);
-            lbl.RenderToSurface(screen);
-            if (isCur) {
-                blitBadge(
-                    GetBadge("ON", {80, 255, 150, 255}), row.x + row.w - 28, row.y + 8);
-            }
-        }
-        // None row
-        {
-            int      noneY = ry + (int)reg.size() * (ROW_H + 2);
-            bool     isCur = !mLevel.tiles[mPowerUpTileIdx].powerUp;
-            SDL_Rect row   = {px + PAD, noneY, PW - PAD * 2, ROW_H};
-            DrawRect(screen,
-                     row,
-                     isCur ? SDL_Color{60, 20, 20, 220} : SDL_Color{30, 35, 55, 200});
-            DrawOutline(screen,
-                        row,
-                        isCur ? SDL_Color{200, 80, 80, 255} : SDL_Color{50, 60, 90, 200});
-            Text lbl("None (remove power-up)",
-                     SDL_Color{200, 180, 180, 255},
-                     row.x + 6,
-                     row.y + 7,
-                     11);
-            lbl.RenderToSurface(screen);
-        }
-    }
-
-    // ── Import input bar ──────────────────────────────────────────────────────
-    if (mImportInputActive) {
-        int panelH = 44, panelY = window.GetHeight() - 24 - panelH;
-        DrawRect(screen, {0, panelY, cw, panelH}, {10, 20, 50, 240});
-        DrawOutline(screen, {0, panelY, cw, panelH}, {80, 180, 255, 255}, 2);
-        std::string dest = (mPalette.ActiveTab() == EditorPalette::Tab::Backgrounds)
-                               ? "game_assets/backgrounds/"
-                               : "game_assets/tiles/";
-        Text il("Import into " + dest + "  — file or folder path  (Enter=go, Esc=cancel)",
-                SDL_Color{140, 200, 255, 255},
-                8,
-                panelY + 4,
-                11);
-        il.RenderToSurface(screen);
-        int fx = 8, fy = panelY + 18, fw = cw - 16, fh = 20;
-        DrawRect(screen, {fx, fy, fw, fh}, {20, 35, 80, 255});
-        DrawOutline(screen, {fx, fy, fw, fh}, {80, 180, 255, 200});
-        Text it(mImportInputText + "|", SDL_Color{255, 255, 255, 255}, fx + 4, fy + 2, 12);
-        it.RenderToSurface(screen);
-    }
-
-    // ── Drop overlay ──────────────────────────────────────────────────────────
-    if (mDropActive) {
-        DrawRect(
-            screen, {0, TOOLBAR_H, cw, window.GetHeight() - TOOLBAR_H}, {20, 80, 160, 80});
-        constexpr int B  = 6;
-        SDL_Color     bc = {80, 180, 255, 220};
-        DrawRect(screen, {0, TOOLBAR_H, cw, B}, bc);
-        DrawRect(screen, {0, window.GetHeight() - B, cw, B}, bc);
-        DrawRect(screen, {0, TOOLBAR_H, B, window.GetHeight() - TOOLBAR_H}, bc);
-        DrawRect(screen, {cw - B, TOOLBAR_H, B, window.GetHeight() - TOOLBAR_H}, bc);
-        int cx2 = cw / 2, cy2 = window.GetHeight() / 2;
-        DrawRect(screen, {cx2 - 220, cy2 - 44, 440, 88}, {10, 30, 70, 220});
-        DrawOutline(screen, {cx2 - 220, cy2 - 44, 440, 88}, {80, 180, 255, 255}, 2);
-        if (mActiveToolId == ToolId::Action) {
-            Text d1("Drop animated tile .json onto an Action tile",
-                    SDL_Color{255, 200, 255, 255},
-                    cx2 - 200,
-                    cy2 - 32,
-                    20);
-            d1.RenderToSurface(screen);
-            blitBadge(GetBadge("The tile will play that animation when destroyed",
-                               {200, 160, 255, 255}),
-                      cx2 - 164,
-                      cy2 + 4);
-        } else {
-            std::string hint = (mPalette.ActiveTab() == EditorPalette::Tab::Backgrounds)
-                                   ? "Drop .png or folder → backgrounds"
-                                   : "Drop .png or folder → tiles";
-            Text        d1(hint, SDL_Color{255, 255, 255, 255}, cx2 - 168, cy2 - 32, 24);
-            d1.RenderToSurface(screen);
-            blitBadge(
-                GetBadge("Folders become subfolders in the palette", {140, 200, 255, 255}),
-                cx2 - 150,
-                cy2 + 4);
-        }
-    }
-
-    // ── Delete confirmation popup ──────────────────────────────────────────
-    if (mDelConfirmActive) {
-        // Dim the whole screen
-        SDL_Surface* ov = SDL_CreateSurface(screen->w, screen->h, SDL_PIXELFORMAT_ARGB8888);
-        if (ov) {
-            SDL_SetSurfaceBlendMode(ov, SDL_BLENDMODE_BLEND);
-            SDL_FillSurfaceRect(ov, nullptr, SDL_MapRGBA(fmt, nullptr, 0, 0, 0, 160));
-            SDL_BlitSurface(ov, nullptr, screen, nullptr);
-            SDL_DestroySurface(ov);
-        }
-        // Panel
-        int pw = 360, ph = 140;
-        int px = W / 2 - pw / 2, py = H / 2 - ph / 2;
-        DrawRect(screen, {px, py, pw, ph}, {20, 18, 28, 250});
-        DrawOutline(screen, {px, py, pw, ph}, {200, 60, 60, 255}, 2);
-        // Title
-        std::string title = mDelConfirmIsDir ? "Delete Folder?" : "Delete File?";
-        auto [tx, ty]     = Text::CenterInRect(title, 18, {px, py + 8, pw, 28});
-        Text t1(title, SDL_Color{255, 100, 100, 255}, tx, ty, 18);
-        t1.RenderToSurface(screen);
-        // Name
-        std::string nameStr = mDelConfirmName;
-        if ((int)nameStr.size() > 32)
-            nameStr = nameStr.substr(0, 30) + "...";
-        auto [nx, ny] = Text::CenterInRect(nameStr, 12, {px, py + 38, pw, 20});
-        Text t2(nameStr, SDL_Color{220, 200, 200, 255}, nx, ny, 12);
-        t2.RenderToSurface(screen);
-        // Warning
-        std::string warn = mDelConfirmIsDir ? "This will delete all files inside!"
-                                            : "This cannot be undone.";
-        auto [wx2, wy2]  = Text::CenterInRect(warn, 11, {px, py + 58, pw, 18});
-        Text t3(warn, SDL_Color{255, 160, 80, 255}, wx2, wy2, 11);
-        t3.RenderToSurface(screen);
-        // Buttons
-        const_cast<SDL_Rect&>(mDelConfirmYes) = {px + 30, py + ph - 44, 130, 34};
-        const_cast<SDL_Rect&>(mDelConfirmNo)  = {px + pw - 30 - 130, py + ph - 44, 130, 34};
-        DrawRect(screen, mDelConfirmYes, {160, 30, 30, 255});
-        DrawOutline(screen, mDelConfirmYes, {220, 80, 80, 255}, 2);
-        auto [yx, yy] = Text::CenterInRect("Delete", 14, mDelConfirmYes);
-        Text tb1("Delete", SDL_Color{255, 200, 200, 255}, yx, yy, 14);
-        tb1.RenderToSurface(screen);
-        DrawRect(screen, mDelConfirmNo, {40, 40, 60, 255});
-        DrawOutline(screen, mDelConfirmNo, {80, 80, 120, 255}, 2);
-        auto [cx3, cy3] = Text::CenterInRect("Cancel", 14, mDelConfirmNo);
-        Text tb2("Cancel", SDL_Color{180, 180, 220, 255}, cx3, cy3, 14);
-        tb2.RenderToSurface(screen);
-        // Esc hint
-        blitBadge(GetBadge("Esc to cancel", {80, 80, 100, 255}), W / 2 - 38, py + ph - 12);
-    }
+    // ── Canvas pass ─────────────────────────────────────────────────────────
+    EditorCanvasRenderer::MovPlatState mp;
+    mp.indices    = &mMovPlatIndices;
+    mp.curGroupId = mMovPlatCurGroupId;
+    mp.horiz      = mPopups.movPlatHoriz;
+    mp.range      = mMovPlatRange;
+    mp.speed      = mPopups.movPlatSpeed;
+    mp.loop       = mPopups.movPlatLoop;
+    mp.trigger    = mPopups.movPlatTrigger;
+    mp.popupOpen  = mPopups.movPlatOpen;
+    mp.speedInput = mPopups.movPlatSpeedInput;
+    mp.speedStr   = mPopups.movPlatSpeedStr;
+    mp.popupRect  = mPopups.movPlatRect;
+
+    mCanvasRenderer.Render(window,
+                           screen,
+                           cw,
+                           TOOLBAR_H,
+                           GRID,
+                           mLevel,
+                           mCamera,
+                           mSurfaceCache,
+                           mPalette,
+                           background.get(),
+                           coinSheet.get(),
+                           enemySheet.get(),
+                           mActiveToolId,
+                           mTool.get(),
+                           MakeToolCtx(),
+                           mActionAnimDropHover,
+                           mp);
+
+    // Sync back the popup rect (canvas renderer computes it when popup is open)
+    mPopups.movPlatRect = mCanvasRenderer.MovPlatPopupRect();
+
+    // ── UI pass ─────────────────────────────────────────────────────────────
+    // Bridge AnimPickerEntry types (LevelEditorScene::AnimPickerEntry ->
+    // EditorUIRenderer::AnimPickerEntry — same fields, different type).
+    // Bridge: EditorPopups::AnimPickerEntry -> EditorUIRenderer::AnimPickerEntry
+    std::vector<EditorUIRenderer::AnimPickerEntry> uiPickerEntries;
+    uiPickerEntries.reserve(mPopups.animPickerEntries.size());
+    for (const auto& e : mPopups.animPickerEntries)
+        uiPickerEntries.push_back({e.path, e.name, e.thumb});
+
+    // Bridge PowerUpEntry types
+    const auto&                                 reg = GetPowerUpRegistry();
+    std::vector<EditorUIRenderer::PowerUpEntry> uiPowerUpReg;
+    uiPowerUpReg.reserve(reg.size());
+    for (const auto& r : reg)
+        uiPowerUpReg.push_back({r.id, r.label, r.defaultDuration});
+
+    EditorUIRenderer::PowerUpPopupState puState;
+    puState.open     = mPopups.powerUpOpen;
+    puState.tileIdx  = mPopups.powerUpTileIdx;
+    puState.rect     = mPopups.powerUpRect;
+    puState.registry = &uiPowerUpReg;
+
+    EditorUIRenderer::DelConfirmState dcState;
+    dcState.active  = mPopups.delActive;
+    dcState.isDir   = mPopups.delIsDir;
+    dcState.name    = mPopups.delName;
+    dcState.yesRect = mPopups.delYes;
+    dcState.noRect  = mPopups.delNo;
+
+    EditorUIRenderer::ImportInputState impState;
+    impState.active = mPopups.importActive;
+    impState.text   = mPopups.importText;
+
+    EditorUIRenderer::MovPlatPopupState mpuState;
+    mpuState.open       = mPopups.movPlatOpen;
+    mpuState.speedInput = mPopups.movPlatSpeedInput;
+    mpuState.speedStr   = mPopups.movPlatSpeedStr;
+    mpuState.speed      = mPopups.movPlatSpeed;
+    mpuState.horiz      = mPopups.movPlatHoriz;
+    mpuState.loop       = mPopups.movPlatLoop;
+    mpuState.trigger    = mPopups.movPlatTrigger;
+    mpuState.curGroupId = mMovPlatCurGroupId;
+    mpuState.rect       = mPopups.movPlatRect;
+
+    mUIRenderer.Render(window,
+                       screen,
+                       cw,
+                       TOOLBAR_H,
+                       GRID,
+                       mActiveToolId,
+                       mCamera,
+                       mLevel,
+                       mSurfaceCache,
+                       mToolbar,
+                       mPalette,
+                       lblStatus.get(),
+                       lblTool.get(),
+                       lblToolPrefix.get(),
+                       mPopups.animPickerTile,
+                       uiPickerEntries,
+                       mPopups.animPickerRect,
+                       puState,
+                       dcState,
+                       impState,
+                       mpuState,
+                       mDropActive,
+                       lblPalHeader,
+                       lblPalHint1,
+                       lblPalHint2,
+                       lblBgHeader,
+                       lblStatusBar,
+                       lblCamPos,
+                       lblBottomHint,
+                       mLastTileCount,
+                       mLastCoinCount,
+                       mLastEnemyCount,
+                       mLastCamX,
+                       mLastCamY,
+                       mLastTileSizeW,
+                       mLastPalHeaderPath,
+                       GetTileW());
+
+    // Sync back rects that HandleEvent needs
+    mPopups.delYes        = mUIRenderer.DelConfirmYesRect();
+    mPopups.delNo         = mUIRenderer.DelConfirmNoRect();
+    mPopups.animPickerRect = mUIRenderer.AnimPickerRect();
 
     // Upload completed surface to GPU and present
     SDL_Texture* tex = SDL_CreateTextureFromSurface(ren, screen);
@@ -3148,9 +1520,6 @@ void LevelEditorScene::Render(Window& window) {
 std::unique_ptr<Scene> LevelEditorScene::NextScene() {
     if (mLaunchGame) {
         mLaunchGame = false;
-        // Pass mProfilePath through directly — empty string means "Frost Knight (default)",
-        // which is correct when the user hasn't selected a custom profile on the title
-        // screen.
         return std::make_unique<GameScene>(
             "levels/" + mLevelName + ".json", true, mProfilePath);
     }
@@ -3160,150 +1529,7 @@ std::unique_ptr<Scene> LevelEditorScene::NextScene() {
     }
     return nullptr;
 }
-
-// --- ImportPath ------------------------------------------------------------
-bool LevelEditorScene::ImportPath(const std::string& srcPath) {
-    fs::path src(srcPath);
-
-    // ── Directory import ──────────────────────────────────────────────────────
-    if (fs::is_directory(src)) {
-        if (mPalette.ActiveTab() == EditorPalette::Tab::Backgrounds) {
-            // Backgrounds doesn't support folders — import all PNGs flat
-            int count = 0;
-            for (const auto& entry : fs::recursive_directory_iterator(src)) {
-                if (entry.path().extension() == ".png")
-                    count += ImportPath(entry.path().string()) ? 1 : 0;
-            }
-            SetStatus("Imported " + std::to_string(count) + " backgrounds from " +
-                      src.filename().string());
-            return count > 0;
-        }
-
-        // Tiles: copy the folder tree into the CURRENT browse directory,
-        // not always the root. This lets you browse into medieval-platformer
-        // and drop a subfolder directly inside it.
-        fs::path        baseDestDir = fs::path(mPalette.CurrentDir()) / src.filename();
-        std::error_code ec;
-
-        // Recursively mirror the source tree: create matching subdirs and
-        // copy every PNG, preserving the full relative hierarchy.
-        int count = 0;
-        for (const auto& entry : fs::recursive_directory_iterator(src)) {
-            if (entry.is_directory()) {
-                // Mirror subdirectory structure under baseDestDir
-                fs::path rel  = fs::relative(entry.path(), src);
-                fs::path dest = baseDestDir / rel;
-                fs::create_directories(dest, ec);
-                continue;
-            }
-            if (entry.path().extension() != ".png")
-                continue;
-            fs::path rel  = fs::relative(entry.path(), src);
-            fs::path dest = baseDestDir / rel;
-            fs::create_directories(dest.parent_path(), ec);
-            if (!fs::exists(dest)) {
-                fs::copy_file(entry.path(), dest, ec);
-                if (ec)
-                    continue;
-            }
-            count++;
-        }
-
-        if (count == 0) {
-            SetStatus("No PNGs found in " + src.filename().string());
-            return false;
-        }
-
-        // Navigate into the newly created folder so the user sees its contents
-        LoadTileView(baseDestDir.string());
-        SetStatus("Imported \"" + src.filename().string() + "\" into " +
-                  fs::path(mPalette.CurrentDir()).filename().string() + " (" +
-                  std::to_string(count) + " files)");
-        return true;
-    }
-
-    // ── Single file import ────────────────────────────────────────────────────
-    std::string ext = src.extension().string();
-    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-    if (ext != ".png") {
-        SetStatus("Import failed: only .png supported (got " + ext + ")");
-        return false;
-    }
-
-    bool        isBg       = (mPalette.ActiveTab() == EditorPalette::Tab::Backgrounds);
-    std::string destDirStr = isBg ? BG_ROOT : TILE_ROOT;
-
-    // If we're currently browsing a subfolder, import into that subfolder
-    if (!isBg && mPalette.CurrentDir() != TILE_ROOT)
-        destDirStr = mPalette.CurrentDir();
-
-    fs::path        destDir(destDirStr);
-    std::error_code ec;
-    fs::create_directories(destDir, ec);
-    if (ec) {
-        SetStatus("Import failed: can't create " + destDirStr);
-        return false;
-    }
-
-    fs::path dest = destDir / src.filename();
-    if (!fs::exists(dest)) {
-        fs::copy_file(src, dest, ec);
-        if (ec) {
-            SetStatus("Import failed: " + ec.message());
-            return false;
-        }
-    }
-
-    if (isBg) {
-        SDL_Surface* full = LoadPNG(dest);
-        if (!full) {
-            SetStatus("Import failed: can't load " + dest.string());
-            return false;
-        }
-        const int    tw = PALETTE_W - 8, th = tw / 2;
-        SDL_Surface* thumb = MakeThumb(full, tw, th);
-        SDL_DestroySurface(full);
-        mPalette.BgItems().push_back({dest.string(), dest.stem().string(), thumb});
-        mPalette.SetBgScroll(std::max(0, (int)mPalette.BgItems().size() - 1));
-        ApplyBackground((int)mPalette.BgItems().size() - 1);
-        SetStatus("Imported & applied: " + dest.filename().string());
-    } else {
-        SDL_Surface* full = LoadPNG(dest);
-        if (!full) {
-            SetStatus("Import failed: can't load " + dest.string());
-            return false;
-        }
-        SDL_SetSurfaceBlendMode(full, SDL_BLENDMODE_BLEND);
-        SDL_Surface* thumb = MakeThumb(full, PAL_ICON, PAL_ICON);
-
-        // Reload the current folder view so the new file appears in the right place
-        // with correct sorting (simpler than inserting into the right position)
-        LoadTileView(mPalette.CurrentDir());
-
-        // Find and select the newly added item
-        auto& items = mPalette.Items();
-        for (int i = 0; i < (int)items.size(); i++) {
-            if (items[i].path == dest.string()) {
-                mPalette.SetSelectedTile(i);
-                int row = i / PAL_COLS;
-                mPalette.SetTileScroll(std::max(0, row));
-                break;
-            }
-        }
-        // Free the surfaces we loaded manually — LoadTileView built its own
-        if (thumb)
-            SDL_DestroySurface(thumb);
-        SDL_DestroySurface(full);
-
-        SwitchTool(ToolId::Tile);
-        if (lblTool)
-            lblTool->CreateSurface("Tile");
-        SetStatus("Imported: " + dest.filename().string() + " -> auto-selected");
-    }
-    return true;
-}
-
-// --- Tile tool accessors (delegate to TileTool when active) ------------------
+// --- Tile tool accessors ---------------------------------------------------
 int LevelEditorScene::GetTileW() const {
     if (mActiveToolId == ToolId::Tile && mTool)
         if (auto* tt = dynamic_cast<const TileTool*>(mTool.get()))
