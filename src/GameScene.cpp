@@ -3,7 +3,7 @@
 #include "GameConfig.hpp"
 #include "GameEvents.hpp"
 #include "LevelEditorScene.hpp"
-#include "LevelTwo.hpp"
+
 #include "SurfaceUtils.hpp"
 #include "TitleScene.hpp"
 #include <SDL3_image/SDL_image.h>
@@ -48,6 +48,7 @@ static SDL_Texture* LoadScaledTexture(
         SDL_DestroySurface(conv);
         return nullptr;
     }
+
     SDL_SetSurfaceBlendMode(conv, SDL_BLENDMODE_NONE);
     SDL_BlitSurfaceScaled(conv, nullptr, scaled, nullptr, SDL_SCALEMODE_LINEAR);
     SDL_DestroySurface(conv);
@@ -229,7 +230,8 @@ void GameScene::Load(Window& window) {
     std::string bgPath = (!mLevelPath.empty() && !mLevel.background.empty())
                              ? mLevel.background
                              : "game_assets/backgrounds/deepspace_scene.png";
-    background   = std::make_unique<Image>(bgPath, FitModeFromString(mLevel.bgFitMode));
+    background = std::make_unique<Image>(bgPath, FitModeFromString(mLevel.bgFitMode));
+    background->SetRepeat(mLevel.bgRepeat);
     locationText = std::make_unique<Text>("You are in space!!", 20, 20);
     actionText   = std::make_unique<Text>(
         "Level 1: Collect ALL the coins!", SDL_Color{255, 255, 255, 0}, 20, 80, 20);
@@ -283,11 +285,9 @@ std::unique_ptr<Scene> GameScene::NextScene() {
             return std::make_unique<TitleScene>();
     }
     if (levelComplete && levelCompleteTimer <= 0.0f) {
-        // Always return to the editor when launched via Play button,
-        // regardless of whether there's a "next level" to go to.
         if (mFromEditor)
             return std::make_unique<LevelEditorScene>(mLevelPath, false, "", mProfilePath);
-        return std::make_unique<LevelTwo>();
+        return std::make_unique<TitleScene>();
     }
     return nullptr;
 }
@@ -689,6 +689,8 @@ void GameScene::Render(Window& window) {
     window.Render(); // clear
     if (background->GetFitMode() == FitMode::SCROLL)
         background->RenderScrolling(ren, mCamera.x, (float)mLevelW);
+    else if (background->GetFitMode() == FitMode::SCROLL_WIDE)
+        background->RenderScrollingWide(ren, mCamera.x, (float)mLevelW);
     else
         background->Render(ren);
 
@@ -1276,17 +1278,8 @@ void GameScene::Spawn() {
         }
     };
 
-    if (!mLevelPath.empty()) {
-        for (const auto& e : mLevel.enemies)
-            spawnEnemy(e.x, e.y, e.speed, e.antiGravity);
-    } else {
-        for (int i = 0; i < GRAVITYSLUGSCOUNT; ++i) {
-            float x     = (float)(rand() % (mWindow->GetWidth() - 100));
-            float y     = (float)(rand() % (mWindow->GetHeight() - SLIME_SPRITE_HEIGHT));
-            float speed = 60.0f + (float)(rand() % 120);
-            spawnEnemy(x, y, speed);
-        }
-    }
+    for (const auto& e : mLevel.enemies)
+        spawnEnemy(e.x, e.y, e.speed, e.antiGravity);
 
     // Build the pre-sorted tile render list used by RenderSystem Pass 1.
     // Tile entity IDs are stable for the lifetime of Spawn() -- they are never

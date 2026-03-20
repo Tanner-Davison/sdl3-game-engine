@@ -43,14 +43,7 @@ class TitleScene : public Scene {
                                            titleX, row1Y - 80 - 72, 72);
         const int row2Y = row1Y + btnH + rowGap;
 
-        playBtnRect = {cx - btnW - gap / 2, row1Y, btnW, btnH};
-        playButton  = std::make_unique<Rectangle>(playBtnRect);
-        playButton->SetColor({255, 255, 255, 255});
-        playButton->SetHoverColor({180, 180, 180, 255});
-        auto [pbx, pby] = Text::CenterInRect("Play", 28, playBtnRect);
-        playBtnText = std::make_unique<Text>("Play", SDL_Color{0, 0, 0, 255}, pbx, pby, 28);
-
-        editorBtnRect = {cx + gap / 2, row1Y, btnW, btnH};
+        editorBtnRect = {cx - btnW - gap / 2, row1Y, btnW, btnH};
         editorButton  = std::make_unique<Rectangle>(editorBtnRect);
         editorButton->SetColor({80, 120, 200, 255});
         editorButton->SetHoverColor({100, 150, 230, 255});
@@ -76,10 +69,6 @@ class TitleScene : public Scene {
                                                   SDL_Color{255, 255, 255, 255},
                                                   tabx, taby, 20);
 
-        hintText = std::make_unique<Text>("Press ENTER to play hardcoded level",
-                                          SDL_Color{140, 140, 140, 255},
-                                          cx - 170, row2Y + btnH + 8, 13);
-
         mRow2BottomY = row2Y + btnH;
 
         mProfileSelectorBaseY = mRow2BottomY;
@@ -87,14 +76,13 @@ class TitleScene : public Scene {
         rebuildProfileSelector();
         mRow2BottomY += 52;
 
-        int viewBtnY = mRow2BottomY + 14;
-        viewLevelsBtnRect = {cx - btnW - gap / 2, viewBtnY, btnW * 2 + gap, btnH};
+        viewLevelsBtnRect = {cx + gap / 2, row1Y, btnW, btnH};
         viewLevelsButton  = std::make_unique<Rectangle>(viewLevelsBtnRect);
-        viewLevelsButton->SetColor({60, 60, 160, 255});
-        viewLevelsButton->SetHoverColor({90, 90, 200, 255});
-        auto [vlx, vly] = Text::CenterInRect("View Levels", 22, viewLevelsBtnRect);
-        viewLevelsBtnText = std::make_unique<Text>("View Levels",
-            SDL_Color{200, 200, 255, 255}, vlx, vly, 22);
+        viewLevelsButton->SetColor({40, 140, 60, 255});
+        viewLevelsButton->SetHoverColor({60, 180, 80, 255});
+        auto [vlx, vly] = Text::CenterInRect("Play Level", 22, viewLevelsBtnRect);
+        viewLevelsBtnText = std::make_unique<Text>("Play Level",
+            SDL_Color{255, 255, 255, 255}, vlx, vly, 22);
 
         scanLevels();
     }
@@ -156,10 +144,15 @@ class TitleScene : public Scene {
                 int mx = (int)e.button.x, my = (int)e.button.y;
                 if (hit(mDelConfirmYes, mx, my)) {
                     std::error_code ec;
-                    fs::remove(mDelConfirmPath, ec);
+                    bool removed = fs::remove(mDelConfirmPath, ec);
+                    if (!removed)
+                        std::print("[Delete] FAILED: '{}' ec={}\n", mDelConfirmPath, ec.message());
+                    else
+                        std::print("[Delete] OK: '{}'\n", mDelConfirmPath);
                     mDelConfirmOpen = false;
                     mDelConfirmPath.clear();
                     scanLevels(); // refresh list
+                    mLevelBrowserOpen = true; // keep browser open
                     return true;
                 }
                 if (hit(mDelConfirmNo, mx, my)) {
@@ -171,37 +164,51 @@ class TitleScene : public Scene {
 
         if (mLevelBrowserOpen) {
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_ESCAPE) {
-                mLevelBrowserOpen = false; return true;
+                mLevelBrowserOpen = false; mLoadingEditor = false; return true;
             }
             if (e.type == SDL_EVENT_MOUSE_WHEEL) {
                 mLevelBrowserScroll -= (int)e.wheel.y; clampBrowserScroll(); return true;
             }
+            // Hover tracking — use the rects stored by the last Render() pass
+            if (e.type == SDL_EVENT_MOUSE_MOTION) {
+                int mx = (int)e.motion.x, my = (int)e.motion.y;
+                mHoverRow = -1; mHoverEdit = false; mHoverDel = false; mHoverPlay = false;
+                for (int i = 0; i < (int)mLevelButtons.size(); i++) {
+                    const auto& lb = mLevelButtons[i];
+                    if (hit(lb.delRect, mx, my))      { mHoverRow = i; mHoverDel  = true; break; }
+                    else if (hit(lb.editRect, mx, my)) { mHoverRow = i; mHoverEdit = true; break; }
+                    else if (hit(lb.rect, mx, my))     { mHoverRow = i; mHoverPlay = true; break; }
+                }
+                return true;
+            }
             if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && e.button.button == SDL_BUTTON_LEFT) {
                 int mx = (int)e.button.x, my = (int)e.button.y;
-                if (hit(mBrowserCloseRect, mx, my)) { mLevelBrowserOpen = false; return true; }
+                if (hit(mBrowserCloseRect, mx, my)) { mLevelBrowserOpen = false; mLoadingEditor = false; return true; }
                 if (hit(mBrowserNewRect, mx, my))   { openNamePrompt(); return true; }
-                int rowH = 52, g = 8;
-                int listY = mBrowserListY - mLevelBrowserScroll * (rowH + g);
-                for (auto& lb : mLevelButtons) {
-                    SDL_Rect pr = lb.rect;     pr.y  = listY;
-                    SDL_Rect er = lb.editRect; er.y  = listY;
-                    SDL_Rect dr = lb.delRect;  dr.y  = listY;
-                    if (hit(dr, mx, my)) {
+                for (int i = 0; i < (int)mLevelButtons.size(); i++) {
+                    const auto& lb = mLevelButtons[i];
+                    // Check smaller buttons first so they take priority
+                    // over the wider play-name rect
+                    if (hit(lb.delRect, mx, my)) {
                         mDelConfirmPath = lb.path;
                         mDelConfirmOpen = true;
                         return true;
                     }
-                    if (hit(pr, mx, my)) { mChosenLevel = lb.path; startGame = true; mLevelBrowserOpen = false; return true; }
-                    if (hit(er, mx, my)) { mEditorPath = lb.path; mEditorForce = false; mEditorName = ""; openEditor = true; mLevelBrowserOpen = false; return true; }
-                    listY += rowH + g;
+                    if (hit(lb.editRect, mx, my)) {
+                        mLoadingEditor = true; mLoadingTimer = 0.0f; mLoadingIdx = i;
+                        mEditorPath = lb.path; mEditorForce = false; mEditorName = "";
+                        return true;
+                    }
+                    if (hit(lb.rect, mx, my)) {
+                        mChosenLevel = lb.path; startGame = true;
+                        mLevelBrowserOpen = false; return true;
+                    }
                 }
             }
             return true;
         }
 
-        if (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_RETURN) {
-            mChosenLevel = ""; startGame = true;
-        }
+
 
         // Character picker intercepts all input when open
         if (mCharPickerOpen) {
@@ -245,7 +252,6 @@ class TitleScene : public Scene {
 
         if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && e.button.button == SDL_BUTTON_LEFT) {
             int mx = (int)e.button.x, my = (int)e.button.y;
-            if (hit(playBtnRect, mx, my))         { mChosenLevel = ""; startGame = true; }
             if (hit(editorBtnRect, mx, my))        { mEditorPath = ""; mEditorForce = false; mEditorName = ""; openEditor = true; }
             if (hit(createPlayerBtnRect, mx, my))  { openPlayerCreator  = true; return true; }
             if (hit(tileAnimBtnRect, mx, my))       { openTileAnimCreator = true; return true; }
@@ -253,7 +259,6 @@ class TitleScene : public Scene {
             if (hit(mChooseCharBtnRect, mx, my))    { openCharPicker(); return true; }
         }
 
-        playButton->HandleEvent(e);
         editorButton->HandleEvent(e);
         if (createPlayerButton) createPlayerButton->HandleEvent(e);
         if (tileAnimButton)     tileAnimButton->HandleEvent(e);
@@ -262,6 +267,16 @@ class TitleScene : public Scene {
     }
 
     void Update(float dt) override {
+        // Loading animation for editor transition
+        if (mLoadingEditor) {
+            mLoadingTimer += dt;
+            if (mLoadingTimer >= 0.35f) {
+                mLoadingEditor = false;
+                mLevelBrowserOpen = false;
+                openEditor = true;
+            }
+        }
+
         if (!mCharPickerOpen || mCharCards.empty()) return;
 
         // Lazy-load one walk frame per card per tick (spread cost across frames)
@@ -303,9 +318,7 @@ class TitleScene : public Scene {
         background->Render(ren);
         titleText->Render(ren);
 
-        playButton->Render(ren);    playBtnText->Render(ren);
         editorButton->Render(ren);  editorBtnText->Render(ren);
-        if (hintText) hintText->Render(ren);
         if (createPlayerButton) { createPlayerButton->Render(ren); createPlayerBtnText->Render(ren); }
         if (tileAnimButton)     { tileAnimButton->Render(ren);     tileAnimBtnText->Render(ren); }
 
@@ -395,7 +408,7 @@ class TitleScene : public Scene {
         }
 
         // ── Level browser modal overlay ───────────────────────────────────────
-        if (mLevelBrowserOpen) {
+        if (mLevelBrowserOpen && !mDelConfirmOpen) {
             int W = window.GetWidth(), H = window.GetHeight();
             SDL_SetRenderDrawColor(ren, 0, 0, 0, 180);
             SDL_FRect full = {0,0,(float)W,(float)H};
@@ -405,64 +418,134 @@ class TitleScene : public Scene {
             int px = (W - pw) / 2, py = (H - ph) / 2;
             SDL_Rect panel = {px, py, pw, ph};
             fillRect(ren, panel, {18, 20, 32, 245});
-            outlineRect(ren, panel, {80, 120, 220, 255}, 2);
+            outlineRect(ren, panel, {60, 90, 180, 255}, 2);
 
-            fillRect(ren, {px, py, pw, 44}, {28, 32, 52, 255});
+            // Header
+            fillRect(ren, {px + 2, py + 2, pw - 4, 44}, {28, 32, 52, 255});
             Text hdr("Levels", {255, 215, 0, 255}, px + 16, py + 10, 22);
             hdr.Render(ren);
+            {
+                std::string countStr = std::to_string(mLevelButtons.size()) + " levels";
+                Text cnt(countStr, {100, 110, 150, 255}, px + 100, py + 16, 13);
+                cnt.Render(ren);
+            }
 
+            // Close button
             mBrowserCloseRect = {px + pw - 38, py + 6, 32, 32};
-            fillRect(ren, mBrowserCloseRect, {140, 40, 40, 255});
-            outlineRect(ren, mBrowserCloseRect, {220, 80, 80, 255});
-            Text closeX("X", {255, 255, 255, 255}, mBrowserCloseRect.x + 9, mBrowserCloseRect.y + 6, 14);
+            fillRect(ren, mBrowserCloseRect, {120, 35, 35, 255});
+            outlineRect(ren, mBrowserCloseRect, {200, 70, 70, 255});
+            auto [cxx, cxy] = Text::CenterInRect("X", 14, mBrowserCloseRect);
+            Text closeX("X", {255, 220, 220, 255}, cxx, cxy, 14);
             closeX.Render(ren);
 
-            int newBtnY = py + 52;
-            mBrowserNewRect = {px + pw/2 - 130, newBtnY, 260, 38};
-            fillRect(ren, mBrowserNewRect, {60, 60, 160, 255});
-            outlineRect(ren, mBrowserNewRect, {100, 100, 200, 255});
-            auto [nlx, nly] = Text::CenterInRect("+ New Level", 18, mBrowserNewRect);
-            Text newLbl("+ New Level", {200, 200, 255, 255}, nlx, nly, 18);
+            // New Level button
+            int newBtnY = py + 54;
+            mBrowserNewRect = {px + 16, newBtnY, pw - 32, 34};
+            fillRect(ren, mBrowserNewRect, {45, 50, 100, 255});
+            outlineRect(ren, mBrowserNewRect, {80, 100, 180, 255});
+            auto [nlx, nly] = Text::CenterInRect("+ New Level", 16, mBrowserNewRect);
+            Text newLbl("+ New Level", {160, 180, 255, 255}, nlx, nly, 16);
             newLbl.Render(ren);
 
-            int listTop = py + 100, listBottom = py + ph - 10;
+            // List area
+            int listTop = py + 96, listBottom = py + ph - 8;
             mBrowserListY = listTop;
-            int rowH = 52, rowGap = 8, delW = 60, editW = 76, btnGap = 8, rowX = px + 16;
-            int playW = pw - 32 - editW - delW - btnGap * 2; // remaining width
+            int rowH = 44, rowGap = 4, pad = 16;
+            int rowX = px + pad;
+            int rowW = pw - pad * 2;
+            int editW = 56, delW = 46, btnGap = 4;
+            int playW = rowW - editW - delW - btnGap * 2;
+
+            // Clip to list area
+            SDL_Rect clipRect = {px + 2, listTop, pw - 4, listBottom - listTop};
+            SDL_SetRenderClipRect(ren, (SDL_Rect*)&clipRect);
+
             int listY = listTop - mLevelBrowserScroll * (rowH + rowGap);
             for (int i = 0; i < (int)mLevelButtons.size(); i++) {
                 int ry = listY + i * (rowH + rowGap);
-                if (ry + rowH < listTop || ry > listBottom) continue;
+                if (ry + rowH < listTop - rowH || ry > listBottom + rowH) continue;
 
+                bool isHover = (i == mHoverRow);
+                bool isLoading = (mLoadingEditor && i == mLoadingIdx);
+
+                // Play/name button
                 SDL_Rect pr = {rowX, ry, playW, rowH};
-                fillRect(ren, pr, {30, 110, 55, 255});
-                outlineRect(ren, pr, {50, 170, 80, 255});
+                SDL_Color playBg  = isLoading ? SDL_Color{60,60,60,255}
+                                   : (isHover && mHoverPlay) ? SDL_Color{40,140,70,255}
+                                   : isHover ? SDL_Color{35,120,60,255}
+                                   : SDL_Color{30,100,50,255};
+                SDL_Color playBdr = (isHover && mHoverPlay) ? SDL_Color{80,220,120,255}
+                                   : SDL_Color{50,150,75,255};
+                fillRect(ren, pr, playBg);
+                outlineRect(ren, pr, playBdr);
                 std::string nm = fs::path(mLevelButtons[i].path).stem().string();
-                auto [lx, ly] = Text::CenterInRect(nm, 20, pr);
-                Text lbl(nm, {255,255,255,255}, lx, ly, 20);
+                auto [lx, ly] = Text::CenterInRect(nm, 16, pr);
+                Text lbl(nm, {255,255,255,255}, lx, ly, 16);
                 lbl.Render(ren);
 
+                // Edit button
                 SDL_Rect er = {rowX + playW + btnGap, ry, editW, rowH};
-                fillRect(ren, er, {50, 80, 160, 255});
-                outlineRect(ren, er, {80, 120, 220, 255});
-                auto [ex, ey] = Text::CenterInRect("Edit", 18, er);
-                Text elbl("Edit", {200,220,255,255}, ex, ey, 18);
-                elbl.Render(ren);
+                SDL_Color editBg  = isLoading ? SDL_Color{80,80,80,255}
+                                    : (isHover && mHoverEdit) ? SDL_Color{70,110,200,255}
+                                    : SDL_Color{45,70,150,255};
+                SDL_Color editBdr = (isHover && mHoverEdit) ? SDL_Color{120,170,255,255}
+                                    : SDL_Color{70,100,200,255};
+                fillRect(ren, er, editBg);
+                outlineRect(ren, er, editBdr);
+                if (isLoading) {
+                    // Spinning dots loading indicator
+                    const char* dots[] = {".  ", ".. ", "...", " ..", "  ."};
+                    int dotIdx = (int)(mLoadingTimer * 8.0f) % 5;
+                    auto [ldx, ldy] = Text::CenterInRect(dots[dotIdx], 14, er);
+                    Text ldots(dots[dotIdx], {200,220,255,255}, ldx, ldy, 14);
+                    ldots.Render(ren);
+                } else {
+                    auto [ex, ey] = Text::CenterInRect("Edit", 14, er);
+                    Text elbl("Edit", {200,220,255,255}, ex, ey, 14);
+                    elbl.Render(ren);
+                }
 
+                // Delete button
                 SDL_Rect dr = {rowX + playW + btnGap + editW + btnGap, ry, delW, rowH};
-                fillRect(ren, dr, {140, 35, 35, 255});
-                outlineRect(ren, dr, {220, 70, 70, 255});
-                auto [dx, dy] = Text::CenterInRect("Del", 16, dr);
-                Text dlbl("Del", {255,200,200,255}, dx, dy, 16);
+                SDL_Color delBg  = (isHover && mHoverDel) ? SDL_Color{180,45,45,255}
+                                   : SDL_Color{120,30,30,255};
+                SDL_Color delBdr = (isHover && mHoverDel) ? SDL_Color{255,100,100,255}
+                                   : SDL_Color{180,60,60,255};
+                fillRect(ren, dr, delBg);
+                outlineRect(ren, dr, delBdr);
+                auto [dx, dy] = Text::CenterInRect("Del", 12, dr);
+                Text dlbl("Del", {255,200,200,255}, dx, dy, 12);
                 dlbl.Render(ren);
 
                 mLevelButtons[i].rect     = pr;
                 mLevelButtons[i].editRect = er;
                 mLevelButtons[i].delRect  = dr;
             }
-            if ((int)mLevelButtons.size() * (rowH + rowGap) > listBottom - listTop) {
-                Text sh("scroll to see more", {80,90,120,255}, px + pw/2 - 60, py + ph - 18, 11);
-                sh.Render(ren);
+
+            // Remove clip
+            SDL_SetRenderClipRect(ren, nullptr);
+
+            // Scroll indicator
+            int totalH = (int)mLevelButtons.size() * (rowH + rowGap);
+            int listH  = listBottom - listTop;
+            if (totalH > listH) {
+                float viewFrac = (float)listH / (float)totalH;
+                int barH  = std::max(20, (int)(listH * viewFrac));
+                float scrollFrac = (float)(mLevelBrowserScroll * (rowH + rowGap)) / (float)(totalH - listH);
+                scrollFrac = std::clamp(scrollFrac, 0.0f, 1.0f);
+                int barY  = listTop + (int)((listH - barH) * scrollFrac);
+                fillRect(ren, {px + pw - 8, barY, 4, barH}, {80, 120, 200, 160});
+            }
+
+            // Empty state
+            if (mLevelButtons.empty()) {
+                auto [etx, ety] = Text::CenterInRect("No levels yet", 16, {px, listTop, pw, listH});
+                Text empty("No levels yet", {100, 110, 140, 255}, etx, ety, 16);
+                empty.Render(ren);
+                auto [esx, esy] = Text::CenterInRect("Click + New Level to create one", 12,
+                    {px, ety + 24, pw, 20});
+                Text esub("Click + New Level to create one", {80, 90, 120, 255}, esx, esy, 12);
+                esub.Render(ren);
             }
         }
 
@@ -473,7 +556,8 @@ class TitleScene : public Scene {
 
   private:
     static bool hit(const SDL_Rect& r, int x, int y) {
-        return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+        if (r.w <= 0 || r.h <= 0) return false;
+        return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
     }
 
     // ── Renderer-based draw helpers ───────────────────────────────────────────
@@ -523,10 +607,17 @@ class TitleScene : public Scene {
     // ── Level button list ─────────────────────────────────────────────────────
     struct LevelButton {
         std::string path;
-        SDL_Rect    rect     = {};
-        SDL_Rect    editRect = {};
-        SDL_Rect    delRect  = {};
+        SDL_Rect    rect     = {-1,-1,0,0};
+        SDL_Rect    editRect = {-1,-1,0,0};
+        SDL_Rect    delRect  = {-1,-1,0,0};
     };
+    int  mHoverRow       = -1;  // row under cursor (-1 = none)
+    bool mHoverEdit      = false;
+    bool mHoverDel       = false;
+    bool mHoverPlay      = false;
+    bool mLoadingEditor  = false;
+    float mLoadingTimer  = 0.0f;
+    int   mLoadingIdx    = -1;
     void scanLevels() {
         mLevelButtons.clear();
         if (!fs::exists("levels")) return;
@@ -538,8 +629,8 @@ class TitleScene : public Scene {
             mLevelButtons.push_back({p.string(), {}, {}});
     }
     void clampBrowserScroll() {
-        int rowH = 52, rowGap = 8, ph = std::min(mWindowH - 80, 560);
-        int listH = ph - 110;
+        int rowH = 44, rowGap = 4, ph = std::min(mWindowH - 80, 560);
+        int listH = ph - 104;
         int maxScroll = std::max(0, ((int)mLevelButtons.size() * (rowH + rowGap) - listH) / (rowH + rowGap));
         if (mLevelBrowserScroll < 0)         mLevelBrowserScroll = 0;
         if (mLevelBrowserScroll > maxScroll) mLevelBrowserScroll = maxScroll;
@@ -634,9 +725,7 @@ class TitleScene : public Scene {
 
     std::unique_ptr<Image>     background;
     std::unique_ptr<Text>      titleText;
-    std::unique_ptr<Text>      playBtnText;
     std::unique_ptr<Text>      editorBtnText;
-    std::unique_ptr<Text>      hintText;
     std::unique_ptr<Text>      createPlayerBtnText;
     std::unique_ptr<Rectangle> createPlayerButton;
     SDL_Rect                   createPlayerBtnRect{};
@@ -646,9 +735,7 @@ class TitleScene : public Scene {
     std::unique_ptr<Rectangle> viewLevelsButton;
     std::unique_ptr<Text>      viewLevelsBtnText;
     SDL_Rect                   viewLevelsBtnRect{};
-    std::unique_ptr<Rectangle> playButton;
     std::unique_ptr<Rectangle> editorButton;
-    SDL_Rect                   playBtnRect{};
     SDL_Rect                   editorBtnRect{};
     std::vector<LevelButton>   mLevelButtons;
 

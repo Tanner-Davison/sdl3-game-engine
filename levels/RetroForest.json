@@ -1,6 +1,7 @@
 {
     "background": "game_assets/backgrounds/Background01.png",
-    "bgFitMode": "scroll",
+    "bgFitMode": "scroll_wide",
+    "bgRepeat": true,
     "coins": [
         {
             "x": 4674.0,

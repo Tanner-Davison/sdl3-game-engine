@@ -95,6 +95,7 @@ const std::vector<EditorPopups::PowerUpEntry>& LevelEditorScene::GetPowerUpRegis
 void LevelEditorScene::ApplyBackground(int idx) {
     mPalette.ApplyBackground(idx, mLevel, [this](const std::string& bgPath) {
         background = std::make_unique<Image>(bgPath, FitModeFromString(mLevel.bgFitMode));
+        background->SetRepeat(mLevel.bgRepeat);
         auto&       items = mPalette.BgItems();
         int         i     = mPalette.SelectedBg();
         std::string label = (i >= 0 && i < (int)items.size()) ? items[i].label : bgPath;
@@ -137,9 +138,11 @@ void LevelEditorScene::Load(Window& window) {
         if (fs::exists(autoPath)) {
             LoadLevel(autoPath, mLevel);
             SetStatus("Resumed: " + autoPath);
-            if (!mLevel.background.empty())
+            if (!mLevel.background.empty()) {
                 background = std::make_unique<Image>(mLevel.background,
                                                      FitModeFromString(mLevel.bgFitMode));
+                background->SetRepeat(mLevel.bgRepeat);
+            }
         } else if (!mOpenPath.empty()) {
             // Path given but file doesn't exist yet — new level with that name
             SetStatus("New level: " + mLevelName);
@@ -1073,15 +1076,35 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                             fm = "tile";
                         else if (fm == "tile")
                             fm = "scroll";
+                        else if (fm == "scroll")
+                            fm = "scroll_wide";
                         else
                             fm = "fill";
                         // Rebuild background image with new fit mode
-                        if (!mLevel.background.empty())
+                        if (!mLevel.background.empty()) {
                             background = std::make_unique<Image>(mLevel.background,
                                                                  FitModeFromString(fm));
+                            background->SetRepeat(mLevel.bgRepeat);
+                        }
                         // Force badge cache rebuild for the new label
                         lblBgHeader.reset();
                         SetStatus("Background fit: " + fm);
+                        return true;
+                    }
+                }
+
+                // Repeat toggle button — right of the fit-mode button
+                {
+                    int rw = 50, rh = 16;
+                    int rx  = CanvasW() + PALETTE_W - 54 - 4 - rw - 4;
+                    int ry  = TOOLBAR_H + TAB_H + (24 - rh) / 2;
+                    if (mx >= rx && mx < rx + rw && my >= ry && my < ry + rh) {
+                        mLevel.bgRepeat = !mLevel.bgRepeat;
+                        if (background)
+                            background->SetRepeat(mLevel.bgRepeat);
+                        lblBgHeader.reset();
+                        SetStatus(std::string("Background repeat: ") +
+                                  (mLevel.bgRepeat ? "ON" : "OFF"));
                         return true;
                     }
                 }

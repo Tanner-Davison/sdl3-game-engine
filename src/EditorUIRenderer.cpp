@@ -449,6 +449,18 @@ void EditorUIRenderer::RenderPalettePanel(
                 "Backgrounds  (I=import)",SDL_Color{200,200,220,255},canvasW+4,palY+6,10);
         if (lblBgHeader) lblBgHeader->RenderToSurface(screen);
 
+        // Repeat toggle button (left of fit-mode button)
+        {
+            int rw=50, rh=16;
+            int rx=canvasW+PALETTE_W-54-4-rw-4, ry=palY+(24-rh)/2;
+            SDL_Color bg  = level.bgRepeat ? SDL_Color{30,120,60,255} : SDL_Color{50,50,70,255};
+            SDL_Color bdr = level.bgRepeat ? SDL_Color{80,220,120,255} : SDL_Color{80,80,110,255};
+            DrawRect(screen, {rx,ry,rw,rh}, bg);
+            DrawOutline(screen, {rx,ry,rw,rh}, bdr);
+            SDL_Color tc = level.bgRepeat ? SDL_Color{180,255,200,255} : SDL_Color{140,140,160,255};
+            blitBadge(badge("Repeat",tc), rx+4, ry+2);
+        }
+
         // Fit-mode button
         {
             const char* fitLabel = level.bgFitMode.c_str();

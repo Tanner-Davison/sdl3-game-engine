@@ -36,7 +36,6 @@ set(SOURCES
     src/main.cpp
     src/TitleScene.cpp
     src/GameScene.cpp
-    src/LevelTwo.cpp
     src/LevelEditorScene.cpp
     src/EditorFileOps.cpp
     src/EditorPalette.cpp

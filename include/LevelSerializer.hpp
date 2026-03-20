@@ -12,6 +12,7 @@ inline bool SaveLevel(const Level& level, const std::string& path) {
     j["name"]        = level.name;
     j["background"]  = level.background;
     j["bgFitMode"]   = level.bgFitMode;
+    j["bgRepeat"]    = level.bgRepeat;
     j["gravityMode"] = (level.gravityMode == GravityMode::WallRun)  ? "wallrun"
                       : (level.gravityMode == GravityMode::OpenWorld) ? "openworld"
                                                                        : "platformer";
@@ -93,6 +94,7 @@ inline bool LoadLevel(const std::string& path, Level& out) {
     out.name        = j.value("name", "Untitled");
     out.background  = j.value("background", "game_assets/backgrounds/deepspace_scene.png");
     out.bgFitMode   = j.value("bgFitMode", "cover");
+    out.bgRepeat    = j.value("bgRepeat", false);
     {
         std::string gm = j.value("gravityMode", "platformer");
         out.gravityMode = (gm == "wallrun")   ? GravityMode::WallRun

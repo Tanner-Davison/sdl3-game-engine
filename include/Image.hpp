@@ -1,4 +1,41 @@
 #pragma once
+// Image.hpp
+//
+// GPU-backed image with multiple viewport fit modes.
+//
+// ── Fit mode reference ──────────────────────────────────────────────────────
+//
+//   CONTAIN      Scale to fit inside viewport, preserving aspect ratio.
+//                May produce letterbox/pillarbox bars. Centred.
+//
+//   COVER        Scale to fill viewport, preserving aspect ratio.
+//                Excess is cropped. Centred.
+//
+//   STRETCH      Ignore aspect ratio, fill viewport exactly.
+//
+//   SRCSIZE      Render at native pixel dimensions at explicit position.
+//
+//   PRESCALED    Same as STRETCH (legacy alias for "tile" in JSON).
+//
+//   FILL         Aspect-preserving fill that never over-zooms large images.
+//                Small images: scale up to cover. Large images (both axes
+//                bigger than viewport): render at 1:1, centred.
+//
+//   SCROLL       Parallax scrolling background for side-scrollers.
+//                Image is scaled so its HEIGHT fills the viewport (width
+//                scales proportionally). The image scrolls horizontally
+//                with the camera. If the scaled image is narrower than
+//                the viewport, it is centred with no scroll.
+//
+//   SCROLL_WIDE  Source-rect scrolling for extra-wide panoramic images.
+//                A viewport-shaped window slides across the texture.
+//                The visible portion always fills the screen perfectly.
+//                For images close to viewport aspect ratio, scroll range
+//                is minimal (which is correct). For very wide panoramas,
+//                there is extensive horizontal scroll.
+//
+// ────────────────────────────────────────────────────────────────────────────
+
 #include <SDL3/SDL.h>
 #include <string>
 #include <string_view>
@@ -8,40 +45,44 @@ enum class FitMode {
     COVER,
     STRETCH,
     SRCSIZE,
-    PRESCALED, // scales the texture dst rect to fill the viewport each frame
-    SCROLL,    // image height fills viewport; scrolls horizontally with the camera
-    FILL       // aspect-preserving fill: never smaller than screen, never over-zoomed
-               // Large images render at 1:1 (centered), small images scale up to fill.
+    PRESCALED,
+    SCROLL,
+    SCROLL_WIDE,
+    FILL,
 };
 
 // Convert a level JSON string to the matching FitMode.
-// Defaults to COVER so existing levels without the field look correct.
 inline FitMode FitModeFromString(const std::string& s) {
-    if (s == "contain") return FitMode::CONTAIN;
-    if (s == "stretch") return FitMode::STRETCH;
-    if (s == "tile")    return FitMode::PRESCALED;
-    if (s == "scroll")  return FitMode::SCROLL;
-    if (s == "fill")    return FitMode::FILL;
-    return FitMode::FILL; // default — aspect-preserving, never over-zoomed
+    if (s == "contain")     return FitMode::CONTAIN;
+    if (s == "cover")       return FitMode::COVER;
+    if (s == "stretch")     return FitMode::STRETCH;
+    if (s == "tile")        return FitMode::PRESCALED;
+    if (s == "scroll")      return FitMode::SCROLL;
+    if (s == "scroll_wide") return FitMode::SCROLL_WIDE;
+    if (s == "fill")        return FitMode::FILL;
+    return FitMode::FILL; // default
 }
 
 inline const char* FitModeToString(FitMode m) {
     switch (m) {
-        case FitMode::CONTAIN:   return "contain";
-        case FitMode::STRETCH:   return "stretch";
-        case FitMode::PRESCALED: return "tile";
-        case FitMode::SCROLL:    return "scroll";
-        case FitMode::FILL:      return "fill";
-        default:                 return "cover";
+        case FitMode::CONTAIN:     return "contain";
+        case FitMode::COVER:       return "cover";
+        case FitMode::STRETCH:     return "stretch";
+        case FitMode::PRESCALED:   return "tile";
+        case FitMode::SCROLL:      return "scroll";
+        case FitMode::SCROLL_WIDE: return "scroll_wide";
+        case FitMode::FILL:        return "fill";
+        case FitMode::SRCSIZE:     return "srcsize";
     }
+    return "fill";
 }
 
 class Image {
   public:
-    // Load from file and optionally upload to GPU immediately
+    // Load from file
     Image(std::string File, FitMode mode = FitMode::CONTAIN);
 
-    // Take ownership of an existing surface and convert to texture on first render
+    // Take ownership of an existing surface
     Image(SDL_Surface* surface, FitMode mode);
 
     ~Image();
@@ -54,20 +95,31 @@ class Image {
     Image(Image&&) noexcept;
     Image& operator=(Image&&) noexcept;
 
-    // Render to renderer. For PRESCALED/COVER/CONTAIN the dst fills rendererW x rendererH.
+    // ── Rendering ────────────────────────────────────────────────────────────
+
+    // Render for all static (non-scrolling) fit modes.
     void Render(SDL_Renderer* renderer);
 
-    // SCROLL mode render: image fills viewport height, scrolls horizontally.
-    // cameraX: current camera world-space X offset.
-    // levelW:  total world width in pixels (0 = unbounded, clamps to image width).
+    // SCROLL mode: image height fills viewport, scrolls horizontally with camera.
+    //   cameraX : current camera world-space X offset (pixels).
+    //   levelW  : total world width in pixels. 0 = use image's own display width
+    //             as the scrollable extent (editor free-pan mode).
     void RenderScrolling(SDL_Renderer* renderer, float cameraX, float levelW = 0.0f);
 
-    // Set an explicit destination rect (used by scenes that place images at fixed positions)
+    // SCROLL_WIDE mode: source-rect sliding for wide panoramas.
+    //   cameraX : current camera world-space X offset (pixels).
+    //   levelW  : total world width in pixels. 0 = derive from image dimensions.
+    void RenderScrollingWide(SDL_Renderer* renderer, float cameraX, float levelW = 0.0f);
+
+    // ── Configuration ────────────────────────────────────────────────────────
+
     void SetDestinationRectangle(SDL_FRect dest);
 
     void    SetFitMode(FitMode mode);
     FitMode GetFitMode() const;
     void    SetFlipHorizontal(bool flip);
+    void    SetRepeat(bool repeat);
+    bool    GetRepeat() const;
 
     void SaveToFile(std::string Location);
 
@@ -75,20 +127,17 @@ class Image {
     int GetOriginalHeight() const { return mOrigH; }
 
   private:
-    // Upload mPendingSurface to GPU and store in mTexture. Called lazily on first Render.
-    void UploadSurface(SDL_Renderer* renderer);
-
-    // Compute mDestRect from current renderer output size based on fit mode
+    void      UploadSurface(SDL_Renderer* renderer);
     SDL_FRect ComputeDest(int rendW, int rendH) const;
 
-    SDL_Surface* mPendingSurface = nullptr; // held until first Render call
+    SDL_Surface* mPendingSurface = nullptr;
     SDL_Texture* mTexture        = nullptr;
     int          mOrigW          = 0;
     int          mOrigH          = 0;
     FitMode      mFitMode        = FitMode::CONTAIN;
     bool         mFlipH          = false;
 
-    // For SRCSIZE / explicit placement
     SDL_FRect mExplicitDest{0, 0, 0, 0};
     bool      mHasExplicitDest = false;
+    bool      mRepeat          = false;
 };

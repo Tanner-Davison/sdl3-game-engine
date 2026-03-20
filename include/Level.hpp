@@ -70,6 +70,7 @@ struct Level {
     std::string             name        = "Untitled";
     std::string             background  = "game_assets/backgrounds/deepspace_scene.png";
     std::string             bgFitMode   = "cover"; // "cover", "contain", "stretch", "tile"
+    bool                    bgRepeat    = false;    // tile the background for infinite scroll
     GravityMode             gravityMode = GravityMode::Platformer;
     PlayerSpawn             player      = {0.0f, 0.0f};
     std::vector<CoinSpawn>  coins;

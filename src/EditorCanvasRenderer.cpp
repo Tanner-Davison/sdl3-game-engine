@@ -83,6 +83,8 @@ void EditorCanvasRenderer::Render(
     if (background) {
         if (background->GetFitMode() == FitMode::SCROLL)
             background->RenderScrolling(ren, camera.X(), 0.0f);
+        else if (background->GetFitMode() == FitMode::SCROLL_WIDE)
+            background->RenderScrollingWide(ren, camera.X(), 0.0f);
         else
             background->Render(ren);
     }
