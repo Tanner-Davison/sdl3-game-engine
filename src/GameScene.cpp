@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <print>
 #include <unordered_map>
+#include <unordered_set>
 namespace fs = std::filesystem;
 // ─────────────────────────────────────────────────────────────────────────────
 // Level-scoped tile texture cache
@@ -684,7 +685,7 @@ void GameScene::Update(float dt) {
     }
 }
 
-void GameScene::Render(Window& window) {
+void GameScene::Render(Window& window, float alpha) {
     SDL_Renderer* ren = window.GetRenderer();
     window.Render(); // clear
     if (background->GetFitMode() == FitMode::SCROLL)
@@ -697,7 +698,7 @@ void GameScene::Render(Window& window) {
     const int W = window.GetWidth();
     const int H = window.GetHeight();
     if (levelComplete) {
-        RenderSystem(reg, ren, mCamera.x, mCamera.y, W, H, &mSortedTileRenderList);
+        RenderSystem(reg, ren, mCamera.x, mCamera.y, W, H, &mSortedTileRenderList, alpha);
         HUDSystem(reg,
                   ren,
                   W,
@@ -717,7 +718,7 @@ void GameScene::Render(Window& window) {
     } else {
         locationText->Render(ren);
         actionText->Render(ren);
-        RenderSystem(reg, ren, mCamera.x, mCamera.y, W, H, &mSortedTileRenderList);
+        RenderSystem(reg, ren, mCamera.x, mCamera.y, W, H, &mSortedTileRenderList, alpha);
 
         // ── Debug hitbox overlay (F1) ─────────────────────────────────────
         if (mDebugHitboxes) {
@@ -906,6 +907,7 @@ void GameScene::Spawn() {
     auto spawnCoin = [&](float cx, float cy) {
         auto coin = reg.create();
         reg.emplace<Transform>(coin, cx, cy);
+        reg.emplace<PrevTransform>(coin, cx, cy); // interpolation
         reg.emplace<Renderable>(coin, coinSheet->GetTexture(), coinFrames, false);
         reg.emplace<AnimationState>(coin, 0, (int)coinFrames.size(), 0.0f, 15.0f, true);
         reg.emplace<Collider>(coin, COIN_SIZE, COIN_SIZE);
@@ -987,6 +989,7 @@ void GameScene::Spawn() {
 
     auto player = reg.create();
     reg.emplace<Transform>(player, playerX, playerY);
+    reg.emplace<PrevTransform>(player, playerX, playerY); // interpolation
     reg.emplace<Velocity>(player);
     {
         AnimationState as;
@@ -1036,15 +1039,43 @@ void GameScene::Spawn() {
     // For custom profiles, any slot that ended up with idleFrames (because it
     // was unfilled) must also use the idle sheet texture, not the frost-knight
     // sheet that was loaded as a fallback. Otherwise sheet and frames mismatch.
-    SDL_Texture* idleT        = knightIdleSheet->GetTexture();
-    auto         resolveSheet = [&](SDL_Texture*                 slotTex,
-                            const std::vector<SDL_Rect>& slotFrames) -> SDL_Texture* {
-        // If frames were patched to idleFrames, the slot texture must also be
-        // the idle texture so sheet+frames always refer to the same atlas.
-        if (mHasProfile && &slotFrames == &idleFrames)
+    SDL_Texture* idleT = knightIdleSheet->GetTexture();
+
+    // resolveSheet: returns the correct GPU texture for a given animation slot.
+    //
+    // When a custom profile is active, any slot that the character doesn't define
+    // gets its frames patched to idleFrames (see Load()).  Because that patch is a
+    // vector *copy* (not the same object), pointer-identity (&slotFrames==&idleFrames)
+    // fails for every patched slot, so we check slot capability instead:
+    //   - If the profile has no custom sprites for this slot, the slot texture MUST
+    //     be idleT so the sheet and frames always refer to the same atlas.
+    //   - If the profile does have custom sprites, use the loaded slot texture.
+    //   - If no profile is active, use the frost-knight slot texture as-is.
+    // Pre-load profile once to know which slots have real custom sprites.
+    // resolveSheet() uses this to decide whether a slot should use idleSheet
+    // (no custom sprites -> frames were patched to idleFrames in Load()) or
+    // the slot's own texture (custom sprites exist -> frames are custom).
+    // This replaces the old pointer-identity check (&slotFrames==&idleFrames)
+    // which broke because Load() patches by *copying* idleFrames, not aliasing.
+    std::unordered_set<int> customSlots;
+    if (mHasProfile) {
+        PlayerProfile spawnProfile;
+        if (!mProfilePath.empty() && LoadPlayerProfile(mProfilePath, spawnProfile)) {
+            for (int i = 0; i < PLAYER_ANIM_SLOT_COUNT; ++i) {
+                auto s = static_cast<PlayerAnimSlot>(i);
+                if (spawnProfile.HasSlot(s))
+                    customSlots.insert(i);
+            }
+        }
+    }
+    auto resolveSheet = [&](SDL_Texture* slotTex, PlayerAnimSlot slot) -> SDL_Texture* {
+        // If the profile has no custom sprites for this slot, its frames were
+        // patched to idleFrames in Load() — return idleT so sheet+frames match.
+        if (mHasProfile && !customSlots.count(static_cast<int>(slot)))
             return idleT;
         return slotTex;
     };
+
     reg.emplace<AnimationSet>(
         player,
         AnimationSet{
@@ -1052,22 +1083,22 @@ void GameScene::Spawn() {
             .idleSheet  = idleT,
             .idleFps    = slotFps(PlayerAnimSlot::Idle),
             .walk       = walkFrames,
-            .walkSheet  = resolveSheet(knightWalkSheet->GetTexture(), walkFrames),
+            .walkSheet  = resolveSheet(knightWalkSheet->GetTexture(),  PlayerAnimSlot::Walk),
             .walkFps    = slotFps(PlayerAnimSlot::Walk),
             .jump       = jumpFrames,
-            .jumpSheet  = resolveSheet(knightJumpSheet->GetTexture(), jumpFrames),
+            .jumpSheet  = resolveSheet(knightJumpSheet->GetTexture(),  PlayerAnimSlot::Jump),
             .jumpFps    = slotFps(PlayerAnimSlot::Jump),
             .hurt       = hurtFrames,
-            .hurtSheet  = resolveSheet(knightHurtSheet->GetTexture(), hurtFrames),
+            .hurtSheet  = resolveSheet(knightHurtSheet->GetTexture(),  PlayerAnimSlot::Hurt),
             .hurtFps    = slotFps(PlayerAnimSlot::Hurt),
             .duck       = duckFrames,
-            .duckSheet  = resolveSheet(knightSlideSheet->GetTexture(), duckFrames),
+            .duckSheet  = resolveSheet(knightSlideSheet->GetTexture(), PlayerAnimSlot::Crouch),
             .duckFps    = slotFps(PlayerAnimSlot::Crouch),
             .front      = frontFrames,
-            .frontSheet = resolveSheet(knightFallSheet->GetTexture(), frontFrames),
+            .frontSheet = resolveSheet(knightFallSheet->GetTexture(),  PlayerAnimSlot::Fall),
             .frontFps   = slotFps(PlayerAnimSlot::Fall),
             .slash      = slashFrames,
-            .slashSheet = resolveSheet(knightSlashSheet->GetTexture(), slashFrames),
+            .slashSheet = resolveSheet(knightSlashSheet->GetTexture(), PlayerAnimSlot::Slash),
             .slashFps   = slotFps(PlayerAnimSlot::Slash),
         });
 
@@ -1192,6 +1223,10 @@ void GameScene::Spawn() {
             reg.emplace<FloatState>(tile, fs);
         }
         if (ts.moving) {
+            // Moving platforms need PrevTransform so RenderSystem can
+            // interpolate their draw position between physics ticks.
+            if (!reg.all_of<PrevTransform>(tile))
+                reg.emplace<PrevTransform>(tile, ts.x, ts.y);
             reg.emplace<MovingPlatformTag>(tile);
             MovingPlatformState mps;
             mps.horiz     = ts.moveHoriz;
@@ -1236,6 +1271,7 @@ void GameScene::Spawn() {
         float dx    = (rand() % 2 == 0) ? speed : -speed;
         auto  enemy = reg.create();
         reg.emplace<Transform>(enemy, x, y);
+        reg.emplace<PrevTransform>(enemy, x, y); // interpolation
         reg.emplace<Velocity>(enemy, dx, 0.0f, speed);
         reg.emplace<AnimationState>(enemy, 0, (int)enemyWalkFrames.size(), 0.0f, 7.0f, true);
         reg.emplace<Renderable>(enemy, enemySheet->GetTexture(), enemyWalkFrames, false);

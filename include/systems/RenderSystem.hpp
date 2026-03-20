@@ -17,10 +17,16 @@
 //        GameScene. Passing it eliminates the per-frame heap alloc + sort for
 //        Pass 1. Pass nullptr to fall back to building the list inline (used by
 //        scenes that don't maintain their own sorted list, e.g. the editor).
+// alpha: interpolation factor in [0,1) from the fixed-step accumulator.
+// For each moving entity that has PrevTransform, the draw position is:
+//   drawX = prevX + (currX - prevX) * alpha
+// Tiles (TileTag, LadderTag, PropTag) are static — they skip interpolation.
+// Moving platforms do have PrevTransform and interpolate naturally.
 inline void RenderSystem(entt::registry& reg, SDL_Renderer* renderer,
                          float camX = 0.0f, float camY = 0.0f,
                          int vw = 0, int vh = 0,
-                         const std::vector<entt::entity>* sortedTiles = nullptr) {
+                         const std::vector<entt::entity>* sortedTiles = nullptr,
+                         float alpha = 1.0f) {
     if (vw == 0 || vh == 0)
         SDL_GetRenderOutputSize(renderer, &vw, &vh);
 
@@ -89,6 +95,18 @@ inline void RenderSystem(entt::registry& reg, SDL_Renderer* renderer,
     }
 
     // Pass 2: player, enemies, coins
+    // Interpolated draw position helper: if the entity has PrevTransform, lerp
+    // between previous and current physics position using alpha. This removes
+    // the up-to-FIXED_DT lag that would otherwise be visible as micro-stutter.
+    // Entities without PrevTransform (e.g. coins spawned mid-level) draw at
+    // their exact current position — no visible difference for static objects.
+    auto interpPos = [&](entt::entity e, const Transform& t) -> std::pair<float,float> {
+        if (const auto* p = reg.try_get<PrevTransform>(e))
+            return { p->x + (t.x - p->x) * alpha,
+                     p->y + (t.y - p->y) * alpha };
+        return { t.x, t.y };
+    };
+
     auto view = reg.view<Transform, Renderable, AnimationState>(
         entt::exclude<TileTag, LadderTag, PropTag>);
 
@@ -97,7 +115,12 @@ inline void RenderSystem(entt::registry& reg, SDL_Renderer* renderer,
         if (!r.sheet || r.frames.empty()) return;
 
         const SDL_Rect& src = r.frames[anim.currentFrame];
+        // Cull using physics position (conservative — interpolated pos is between
+        // prev and curr, so if curr is on-screen prev almost certainly is too).
         if (culled(t.x, t.y, src.w, src.h)) return;
+
+        // Use interpolated world position for all draw calculations below
+        auto [ix, iy] = interpPos(entity, t);
 
         auto* g    = reg.try_get<GravityState>(entity);
         auto* inv  = reg.try_get<InvincibilityTimer>(entity);
@@ -128,9 +151,9 @@ inline void RenderSystem(entt::registry& reg, SDL_Renderer* renderer,
             }
         }
 
-        // Render position
-        float rx = t.x - camX;
-        float ry = t.y - camY;
+        // Render position — use interpolated world pos (ix, iy) throughout
+        float rx = ix - camX;
+        float ry = iy - camY;
 
         if (g && g->active && col) {
             switch (g->direction) {
@@ -143,22 +166,17 @@ inline void RenderSystem(entt::registry& reg, SDL_Renderer* renderer,
                             //
                             // NOT flipped:  body left edge = sprite_x + hb.x
                             //               hb.x = -roff->x  (roff->x is negative)
-                            //               rx = t.x + roff->x
-                            //               body at: rx + (-roff->x) = t.x  ✓
+                            //               rx = ix + roff->x
+                            //               body at: rx + (-roff->x) = ix  ✓
                             //
                             // FLIPPED:      body appears mirrored — its left edge
                             //               is now src.w - hb.x - col->w from
                             //               the sprite's LEFT edge.
-                            //               We need:  rx + (src.w - hb.x - col->w) = t.x
-                            //               => rx = t.x - src.w + hb.x + col->w
-                            //                     = t.x - (src.w - col->w) + hb.x
-                            //                     = t.x - (src.w - col->w) - roff->x
-                            //
-                            // Verified for all sprite sizes:
-                            //   frost knight: t.x - (120-56) - (-32) = t.x - 32  ✓
-                            //   bones(160x140): t.x - (160-75) - (-43) = t.x - 42  ✓
-                            //   angryorange(200x200): t.x - (200-61) - (-53) = t.x - 86  ✓
-                            rx = (t.x - camX) - (src.w - col->w) - roff->x;
+                            //               We need:  rx + (src.w - hb.x - col->w) = ix
+                            //               => rx = ix - src.w + hb.x + col->w
+                            //                     = ix - (src.w - col->w) + hb.x
+                            //                     = ix - (src.w - col->w) - roff->x
+                            rx = (ix - camX) - (src.w - col->w) - roff->x;
                         } else {
                             rx += roff->x;
                         }
@@ -174,7 +192,7 @@ inline void RenderSystem(entt::registry& reg, SDL_Renderer* renderer,
                     ry += roff ? roff->x : -(src.h - col->h) / 2;
                     break;
                 case GravityDir::RIGHT:
-                    rx  = (t.x - camX) + col->h - src.w - (roff ? roff->y : 0);
+                    rx  = (ix - camX) + col->h - src.w - (roff ? roff->y : 0);
                     ry += roff ? roff->x : -(src.h - col->h) / 2;
                     break;
             }
@@ -184,7 +202,7 @@ inline void RenderSystem(entt::registry& reg, SDL_Renderer* renderer,
             // formula used in the GravityDir::DOWN branch above.
             if (roff && col) {
                 if (r.flipH) {
-                    rx = (t.x - camX) - (src.w - col->w) - roff->x;
+                    rx = (ix - camX) - (src.w - col->w) - roff->x;
                 } else {
                     rx += roff->x;
                 }

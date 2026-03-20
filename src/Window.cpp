@@ -21,8 +21,15 @@ Window::Window() {
     SDLWindow.reset(winPtr);
     SDL_SetWindowPosition(winPtr, usable.x, usable.y);
 
-    // GPU-accelerated renderer
-    SDL_Renderer* renPtr = SDL_CreateRenderer(winPtr, nullptr);
+    // GPU-accelerated renderer with VSync enabled.
+    // VSync syncs Present() to the display refresh rate, eliminating tearing
+    // and giving the OS a natural yield point each frame. On WSL where VSync
+    // may not be honoured, the hybrid sleep+spin in main.cpp handles pacing.
+    SDL_PropertiesID renProps = SDL_CreateProperties();
+    SDL_SetPointerProperty(renProps, SDL_PROP_RENDERER_CREATE_WINDOW_POINTER, winPtr);
+    SDL_SetNumberProperty(renProps, SDL_PROP_RENDERER_CREATE_PRESENT_VSYNC_NUMBER, 1);
+    SDL_Renderer* renPtr = SDL_CreateRendererWithProperties(renProps);
+    SDL_DestroyProperties(renProps);
     if (!renPtr)
         throw std::runtime_error(std::string("Failed to create Renderer: ") + SDL_GetError());
 

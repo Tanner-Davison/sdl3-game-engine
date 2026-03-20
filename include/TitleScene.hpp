@@ -310,7 +310,7 @@ class TitleScene : public Scene {
         }
     }
 
-    void Render(Window& window) override {
+    void Render(Window& window, float /*alpha*/ = 1.0f) override {
         window.Render();
         SDL_Renderer* ren = window.GetRenderer();
         SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);

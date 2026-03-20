@@ -2,6 +2,7 @@
 // The root include/Scene.hpp forwards here for backward compatibility.
 #pragma once
 #include <SDL3/SDL.h>
+#include <entt/entt.hpp>
 #include <memory>
 
 class Window;
@@ -19,11 +20,18 @@ class Scene {
     // Handle a single SDL event — return false to quit the app
     virtual bool HandleEvent(SDL_Event& e) = 0;
 
-    // Update game logic
+    // Update game logic (fixed dt from accumulator loop)
     virtual void Update(float dt) = 0;
 
-    // Render to window surface
-    virtual void Render(Window& window) = 0;
+    // Render to window.
+    // alpha: sub-step interpolation factor in [0,1) — passed down to
+    // RenderSystem so it can lerp between PrevTransform and Transform.
+    virtual void Render(Window& window, float alpha = 1.0f) = 0;
+
+    // Returns a pointer to this scene's EnTT registry, or nullptr if the
+    // scene has no registry (UI-only scenes, title screen, etc.).
+    // SceneManager uses this to snapshot PrevTransform before each tick.
+    virtual entt::registry* GetRegistry() { return nullptr; }
 
     // If this returns non-null, SceneManager will switch to it next frame
     virtual std::unique_ptr<Scene> NextScene() { return nullptr; }

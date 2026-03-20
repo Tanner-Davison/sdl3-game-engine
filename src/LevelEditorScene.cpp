@@ -1390,7 +1390,7 @@ void LevelEditorScene::Update(float /*dt*/) {
 }
 
 // --- Render ----------------------------------------------------------------
-void LevelEditorScene::Render(Window& window) {
+void LevelEditorScene::Render(Window& window, float /*alpha*/) {
     window.Render();
     SDL_Renderer* ren = window.GetRenderer();
 

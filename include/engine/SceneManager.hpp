@@ -1,8 +1,10 @@
 // engine/SceneManager.hpp — canonical location.
 #pragma once
+#include "Components.hpp"
 #include "Scene.hpp"
 #include <SDL3/SDL.h>
 #include <engine/Scene.hpp>
+#include <entt/entt.hpp>
 #include <memory>
 
 // Forward declare to avoid pulling in Window.hpp here unnecessarily
@@ -23,9 +25,25 @@ class SceneManager {
         return mCurrent->HandleEvent(e);
     }
 
+    // Snapshot PrevTransform for every entity that has both Transform and
+    // PrevTransform, then tick the scene by exactly dt seconds.
+    // Called once per fixed physics step from main's accumulator loop.
     void Update(float dt, Window& window) {
         if (!mCurrent)
             return;
+
+        // Snapshot current positions into PrevTransform before the tick.
+        // RenderSystem uses these to interpolate the draw position between
+        // physics steps, giving smooth motion at any render frame rate.
+        entt::registry* reg = mCurrent->GetRegistry();
+        if (reg) {
+            auto view = reg->view<Transform, PrevTransform>();
+            view.each([](const Transform& t, PrevTransform& p) {
+                p.x = t.x;
+                p.y = t.y;
+            });
+        }
+
         mCurrent->Update(dt);
 
         auto next = mCurrent->NextScene();
@@ -36,9 +54,12 @@ class SceneManager {
         }
     }
 
-    void Render(Window& window) {
+    // alpha: sub-step interpolation factor in [0, 1).
+    // Pass (accumulator / FIXED_DT) from the main loop so RenderSystem can
+    // lerp between PrevTransform and Transform for perfectly smooth motion.
+    void Render(Window& window, float alpha = 1.0f) {
         if (mCurrent)
-            mCurrent->Render(window);
+            mCurrent->Render(window, alpha);
     }
 
     void Shutdown() {

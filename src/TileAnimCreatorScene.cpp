@@ -344,7 +344,7 @@ void TileAnimCreatorScene::Update(float dt) {
 
 // ---- Render -----------------------------------------------------------------
 
-void TileAnimCreatorScene::Render(Window& window) {
+void TileAnimCreatorScene::Render(Window& window, float /*alpha*/) {
     window.Render();
     SDL_Renderer* ren = window.GetRenderer();
     SDL_Surface* s = SDL_CreateSurface(mW, mH, SDL_PIXELFORMAT_ARGB8888);

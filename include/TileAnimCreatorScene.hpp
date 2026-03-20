@@ -38,7 +38,7 @@ class TileAnimCreatorScene : public Scene {
     void                   Unload() override;
     bool                   HandleEvent(SDL_Event& e) override;
     void                   Update(float dt) override;
-    void                   Render(Window& window) override;
+    void                   Render(Window& window, float alpha = 1.0f) override;
     std::unique_ptr<Scene> NextScene() override;
 
   private:

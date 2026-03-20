@@ -162,6 +162,12 @@ inline void PlayerStateSystem(entt::registry& reg) {
             // floating, not standing still.  Fall back to idle if no front frames exist.
             const ActivePowerUps* aps = reg.try_get<ActivePowerUps>(entity);
             if (aps && aps->has(PowerUpType::AntiGravity)) {
+                // Use FRONT (fall) anim while floating if the character has one.
+                // IMPORTANT: id must match the frames/sheet we assign — if the
+                // character has no front frames we fall back to IDLE and set
+                // id=IDLE so the sheet lookup below uses idleSheet, not frontSheet.
+                // Mismatching id=FRONT with frames=idle would pull in the frost
+                // knight's frontSheet and corrupt the custom character's render.
                 if (!set.front.empty()) {
                     frames = &set.front;
                     fps    = resolveFps(set.frontFps, 6.0f);
@@ -169,7 +175,7 @@ inline void PlayerStateSystem(entt::registry& reg) {
                 } else {
                     frames = &set.idle;
                     fps    = resolveFps(set.idleFps, 12.0f);
-                    id     = AnimationID::IDLE;
+                    id     = AnimationID::IDLE; // must be IDLE so idleSheet is used below
                 }
             } else {
                 // Gravity disabled for another reason — default to idle

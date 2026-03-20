@@ -440,7 +440,7 @@ void PlayerCreatorScene::Update(float dt) {
 // Render
 // ─────────────────────────────────────────────────────────────────────────────
 
-void PlayerCreatorScene::Render(Window& window) {
+void PlayerCreatorScene::Render(Window& window, float /*alpha*/) {
     window.Render();
     SDL_Renderer* ren = window.GetRenderer();
     // Render this scene to an intermediate surface, then upload to renderer.

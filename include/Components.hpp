@@ -21,6 +21,16 @@ struct Transform {
     float y = 0.0f;
 };
 
+// Previous-frame position, snapshotted at the start of every physics tick.
+// RenderSystem lerps between PrevTransform and Transform using the sub-step
+// alpha so motion appears smooth at any render frame rate, regardless of the
+// fixed physics tick rate. Attached to every moving entity (player, enemies,
+// coins, moving platforms). Static tiles do not need this component.
+struct PrevTransform {
+    float x = 0.0f;
+    float y = 0.0f;
+};
+
 // Movement direction and speed
 struct Velocity {
     float dx    = 0.0f;
