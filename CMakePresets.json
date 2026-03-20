@@ -30,6 +30,18 @@
       "cacheVariables": {
         "VCPKG_TARGET_TRIPLET": "x64-osx"
       }
+    },
+    {
+      "name": "windows",
+      "displayName": "Windows x64",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build-windows",
+      "toolchainFile": "C:/vcpkg/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
+        "CMAKE_BUILD_TYPE": "Release"
+      }
     }
   ],
   "buildPresets": [
@@ -44,6 +56,10 @@
     {
       "name": "mac-intel",
       "configurePreset": "mac-intel"
+    },
+    {
+      "name": "windows",
+      "configurePreset": "windows"
     }
   ]
 }
