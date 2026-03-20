@@ -1,61 +1,95 @@
-# SDL Sandbox
+# Forge2D
 
 Author: Tanner Davison
 
-A 2D game engine foundation built on SDL3 and EnTT. This project is a personal sandbox for building and testing the core systems needed for a platformer engine — windowing, sprite animation, sprite sheets, an Entity Component System (ECS), collision detection, scene management, and a delta-time game loop.
+A 2D platformer engine built from scratch with SDL3, EnTT ECS, and C++23. Forge2D includes a full-featured level editor, a character creator with per-animation sprite and hitbox configuration, a tile animation creator, and a runtime game engine with physics, combat, and scene management. All levels, characters, and tile animations are created and saved through the editor tools — no hardcoded content.
 
 ---
 
-## Architecture Overview
+## Features
+
+- Full level editor with tile placement, resizing, hitbox editing, and multi-tool workflow
+- Character creator with 8 animation slots (Idle, Walk, Crouch, Jump, Fall, Slash, Hurt, Death), per-slot FPS, and per-slot hitbox configuration
+- Tile animation creator for building animated tile sequences from PNG folders
+- Scene system with title screen, game, editor, pause menu, and creator scenes
+- ECS architecture using EnTT with cleanly separated systems
+- Platformer, wall-run, and open-world (top-down) gravity modes per level
+- Collision system with AABB, slopes, step-up, and custom hitbox offsets
+- Ladder climbing system with top-landing, mid-grab, and descent
+- Moving platforms with horizontal/vertical travel, ping-pong, sine oscillation, grouped movement, and player-trigger activation
+- Floating/anti-gravity objects with bob, drift, spin, and physics-driven player interaction
+- Action tiles (slash-to-destroy with hit counts, grouped triggering, and animated destruction sequences)
+- Hazard tiles with continuous damage and visual flash
+- Power-up system (anti-gravity, extensible for future types)
+- Enemy AI with patrol, stomp-to-kill, slash-to-kill, and gravity for grounded enemies
+- Coin collection and level completion tracking
+- Pause menu with resume, back-to-editor, and back-to-title options
+- GPU-accelerated rendering via SDL3 Renderer with texture caching across respawns
+- Camera system with deadzone, smooth lerp follow, and level bounds clamping
+- Debug hitbox overlay (F1) showing player, tile, hazard, ladder, and enemy colliders
+- Custom character profiles saved as JSON with per-slot sprite folders and hitbox data
+- Level serialization to JSON with full round-trip fidelity
+
+---
+
+## Architecture
 
 ### ECS (Entity Component System)
-The core game simulation runs through EnTT. Components are plain data structs defined in `Components.hpp`, and systems are free functions split into individual headers under `include/systems/`, aggregated by `Systems.hpp`.
 
-**Components:**
-- `Transform` — world position (x, y)
-- `Velocity` — movement direction, speed, and friction
-- `AnimationState` — current frame, timer, fps, looping flag, and current animation ID
-- `AnimationSet` — full set of frame rect vectors per animation (idle, walk, jump, hurt, duck, front)
-- `Renderable` — sprite sheet surface, active frame rects, and horizontal flip state
-- `FlipCache` — lazily-built per-frame cache of pre-flipped surfaces, invalidated on animation change
-- `Health` — current and max health values
-- `Collider` — AABB width and height, updated when crouching
-- `InvincibilityTimer` — post-hit grace period with remaining time and active flag
-- `GravityState` — gravity direction, velocity along gravity axis, grounded state, crouch state, and punishment timer
-- `PlayerTag` — empty tag marking the player entity
-- `EnemyTag` — empty tag marking enemy entities
+Components are plain data structs defined in `Components.hpp`. Systems are free functions in individual headers under `include/systems/`, aggregated by `Systems.hpp`.
 
-**Systems (`include/systems/`):**
-- `InputSystem` — WASD/space/ctrl input, handles gravity and free mode separately
-- `MovementSystem` — velocity, friction, gravity force, jump boost, crouch deceleration
-- `PlayerStateSystem` — animation priority state machine (hurt > crouch > jump > walk > idle), manages collider and position on crouch transitions
-- `AnimationSystem` — advances animation frames using delta time, respects looping flag
-- `RenderSystem` — extracts frames from original sheet, applies flip cache, gravity rotation, wall-flush position offset, and invincibility flash. Includes debug hitbox rendering
-- `CollisionSystem` — AABB player vs enemy detection, applies damage, triggers zero gravity punishment
-- `BoundsSystem` — clamps player to screen edges, activates gravity on wall contact, ticks punishment timer
-- `CenterPullSystem` — pulls player toward screen center during zero gravity punishment
-- `HUDSystem` — renders health bar and zero gravity countdown timer
+**Core Components:** Transform, Velocity, Collider, ColliderOffset, Renderable, RenderOffset, AnimationState, AnimationSet, Health, InvincibilityTimer, GravityState, ClimbState, HazardState, AttackState, PlayerBaseCollider, ActivePowerUps, FloatState, MovingPlatformState, HitFlash, DestroyAnimTag, SlopeCollider
+
+**Tag Components:** PlayerTag, EnemyTag, CoinTag, DeadTag, TileTag, LadderTag, PropTag, HazardTag, FloatTag, MovingPlatformTag, TileAnimTag, OpenWorldTag, ActionTag, PowerUpTag, DestructibleTag
+
+**Systems:**
+
+- `InputSystem` — keyboard input for WASD/arrows, space, ctrl, F (slash), W/S on ladders
+- `MovementSystem` — velocity integration, friction, gravity force, jump hold boost, enemy patrol with tile-edge reversal
+- `PlayerStateSystem` — animation priority state machine (attack > hurt > anti-gravity float > airborne > crouch > walk > idle) with per-character collider enforcement and slot capability gating
+- `AnimationSystem` — delta-time frame advancement with looping and non-looping support
+- `CollisionSystem` — multi-pass AABB (slope pass, gravity-axis snap, lateral push-out with step-up), enemy stomp/damage, coin collection, hazard overlap, and sword hitbox vs enemy/action-tile detection
+- `BoundsSystem` — level-edge clamping, wall-run gravity flip, open-world bounds, punishment timer tick
+- `MovingPlatformSystem` — platform tick (sine/ping-pong/trigger modes, grouped sync) and player carry
+- `FloatingSystem` — bob oscillation, drift/spin decay, player body push, sword slash push, floating-object-to-object collisions, tile bounce, and enemy gravity for non-floating enemies
+- `LadderSystem` — ladder column detection, climb/descend/top-lock states, jump-off, and side walk-off
+- `RenderSystem` — GPU texture rendering with camera offset, flip, rotation, invincibility flash, hazard flash, hit flash overlay, and pre-sorted tile render list
+- `HUDSystem` — health bar, gravity direction indicator, coin count, stomp count
 
 ### Scene System
-Game states are organized as scenes that inherit from a `Scene` base class. `SceneManager` owns the active scene and handles transitions automatically when `NextScene()` returns a non-null value.
 
-- `TitleScene` — opening screen with Play button, transitions to `GameScene`
-- `GameScene` — main gameplay, owns the ECS registry and all assets
+Scenes inherit from `Scene` (load, unload, handle event, update, render, next scene). `SceneManager` owns the active scene and handles transitions.
 
-To add a new level, create a class that inherits from `Scene` and return it from `GameScene::NextScene()` when the win condition is met.
+- `TitleScene` — title screen with Play and Editor buttons, character profile selector
+- `GameScene` — main gameplay, owns the ECS registry and all runtime assets
+- `LevelEditorScene` — full level editor (modular: EditorFileOps, EditorPalette, EditorToolbar, EditorPopups, EditorCamera, EditorCanvasRenderer, EditorUIRenderer, EditorSurfaceCache)
+- `PlayerCreatorScene` — character creator with drag-and-drop sprite folders, hitbox editor, and save/load
+- `TileAnimCreatorScene` — animated tile builder from PNG sequences
+- `PauseMenuScene` — in-game pause overlay with resume and back navigation
+
+### Level Editor Tools (`include/tools/`)
+
+The editor uses a tool abstraction (`EditorTool` base) with a shared `EditorToolContext`. Available tools:
+
+- `PlacementTools` — single tile and line/rect fill placement
+- `SelectTool` — click or box-select tiles, move selection, delete, copy
+- `ResizeTool` — drag tile edges/corners to resize
+- `HitboxTool` — drag to define custom collider sub-rects per tile
+- `ModifierTools` — toggle tile properties (prop, hazard, ladder, slope, action, moving platform, power-up, anti-gravity, etc.)
 
 ### Supporting Classes
-- **Window** — RAII wrapper around `SDL_Window`. Uses surface-based rendering. Note: `SDL_GetWindowSurface` and `SDL_CreateRenderer` are mutually exclusive — do not create a renderer on this window.
-- **Image** — Loads and blits a single image surface with configurable `FitMode`:
-  - `CONTAIN` — letterboxed to fit within bounds
-  - `COVER` — cropped to fill bounds, preserving aspect ratio
-  - `STRETCH` — fills bounds ignoring aspect ratio
-  - `SRCSIZE` — renders at original pixel dimensions
-  - `PRESCALED` — bakes a scaled surface once at first render, rebakes on window resize, then blits 1:1 every frame. Use this for backgrounds to avoid per-frame software scaling.
-- **SpriteSheet** — Parses a texture atlas (text or XML format) and exposes named frame rects and animation sequences.
-- **Text** — SDL3_ttf text rendering with optional background color. `CreateSurface` safely ignores empty strings.
-- **UI / Button / Rectangle** — Basic interactive UI with hover detection and click callbacks.
-- **ErrorHandling** — Lightweight SDL error checking helper.
+
+- **Window** — RAII SDL3 window wrapper with GPU renderer
+- **Image** — loads and renders images with fit modes (Cover, Contain, Stretch, SrcSize, Scroll, ScrollWide) and optional tiling/repeat
+- **SpriteSheet** — texture atlas parser (text, XML, or explicit path list) with named animation lookup and GPU texture upload
+- **Text** — SDL3_ttf text rendering with centering helpers
+- **UI / Button / Rectangle** — interactive UI primitives with hover detection
+- **LevelSerializer** — JSON save/load for levels (tiles, enemies, coins, player spawn, background, gravity mode, and all per-tile properties)
+- **PlayerProfile** — JSON save/load for character profiles (name, sprite dimensions, per-slot folder paths, hitbox overrides, FPS overrides)
+- **AnimatedTile** — JSON manifest loader for tile animation sequences
+- **SurfaceUtils** — surface rotation and scaling helpers
+- **GameConfig** — compile-time gameplay constants (player stats, physics, enemy stats, camera)
+- **GameEvents** — lightweight result structs returned by systems (CollisionResult, FloatingResult)
 
 ---
 
@@ -63,7 +97,7 @@ To add a new level, create a class that inherits from `Scene` and return it from
 
 ### Prerequisites
 
-All dependencies are managed via [vcpkg](https://github.com/microsoft/vcpkg).
+Dependencies are managed via [vcpkg](https://github.com/microsoft/vcpkg): SDL3, SDL3_image (with PNG), SDL3_ttf, EnTT, nlohmann_json, libpng, and zlib.
 
 **Install vcpkg** (if not already installed):
 ```bash
@@ -76,49 +110,34 @@ cd ~/tools/vcpkg
 
 Linux:
 ```bash
-vcpkg install sdl3 "sdl3-image[png]" sdl3-ttf entt
+vcpkg install sdl3 "sdl3-image[png]" sdl3-ttf entt nlohmann-json
 ```
 
 macOS Apple Silicon:
 ```bash
-vcpkg install sdl3 "sdl3-image[png]" sdl3-ttf entt --triplet arm64-osx
+vcpkg install sdl3 "sdl3-image[png]" sdl3-ttf entt nlohmann-json --triplet arm64-osx
 ```
 
 macOS Intel:
 ```bash
-vcpkg install sdl3 "sdl3-image[png]" sdl3-ttf entt --triplet x64-osx
+vcpkg install sdl3 "sdl3-image[png]" sdl3-ttf entt nlohmann-json --triplet x64-osx
 ```
-
-> **Note:** JPEG support is not included by default on macOS. Use PNG assets, or convert JPEGs with `sips -s format png input.jpg --out output.png`.
-
----
 
 ### Building with Presets
 
-**Linux:**
 ```bash
-cmake --preset linux
-cmake --build --preset linux
-./build/sdl-sandbox
+# Linux
+cmake --preset linux && cmake --build --preset linux
+
+# macOS Apple Silicon
+cmake --preset mac-arm && cmake --build --preset mac-arm
+
+# macOS Intel
+cmake --preset mac-intel && cmake --build --preset mac-intel
+
+# Run (always from the project root so asset paths resolve correctly)
+./build/forge2d
 ```
-
-**macOS Apple Silicon (M1/M2/M3):**
-```bash
-cmake --preset mac-arm
-cmake --build --preset mac-arm
-./build/sdl-sandbox
-```
-
-**macOS Intel:**
-```bash
-cmake --preset mac-intel
-cmake --build --preset mac-intel
-./build/sdl-sandbox
-```
-
-> **Important:** Always run the executable from the project root so asset paths resolve correctly.
-
----
 
 ### Manual CMake (no presets)
 
@@ -134,50 +153,80 @@ cmake --build build
 ## Project Structure
 
 ```
-sdl-sandbox/
-├── src/                    # Implementation files (.cpp)
-├── include/                # Header files
-│   ├── systems/            # Individual ECS system headers
-│   ├── Components.hpp      # All ECS component definitions and game constants
-│   ├── Systems.hpp         # Aggregator — includes all system headers
-│   ├── Scene.hpp           # Abstract scene base class
-│   ├── SceneManager.hpp    # Owns and transitions between scenes
-│   ├── GameScene.hpp       # Main gameplay scene
-│   ├── TitleScene.hpp      # Opening title screen
-│   ├── Image.hpp           # Image loading and rendering
-│   ├── SpriteSheet.hpp     # Texture atlas parser
-│   ├── Text.hpp            # TTF text rendering
-│   ├── Window.hpp          # SDL window wrapper
-│   └── SurfaceUtils.hpp    # Surface rotation helpers
-├── game_assets/            # Sprites, backgrounds, tilesets
-├── fonts/                  # TTF font files
-└── CMakePresets.json       # Platform build presets
+forge2d/
+├── src/                         # Implementation files (.cpp)
+│   ├── main.cpp                 # Entry point, scene loop
+│   ├── GameScene.cpp            # Main gameplay scene
+│   ├── LevelEditorScene.cpp     # Level editor core
+│   ├── Editor*.cpp              # Editor subsystem implementations
+│   ├── PlayerCreatorScene.cpp   # Character creator
+│   ├── TileAnimCreatorScene.cpp # Tile animation creator
+│   ├── TitleScene.cpp           # Title screen
+│   └── *.cpp                    # Window, Image, Text, SpriteSheet, UI, etc.
+├── include/
+│   ├── systems/                 # Individual ECS system headers
+│   ├── tools/                   # Level editor tool classes
+│   ├── engine/                  # Scene, SceneManager base classes
+│   ├── game/                    # GameConfig, GameEvents
+│   ├── Components.hpp           # All ECS component definitions
+│   ├── Systems.hpp              # Aggregator for all systems
+│   ├── GameScene.hpp            # Game scene header
+│   ├── LevelEditorScene.hpp     # Editor scene header
+│   ├── Level.hpp                # Level data structures
+│   ├── LevelSerializer.hpp      # Level JSON I/O
+│   ├── PlayerProfile.hpp        # Character profile data and JSON I/O
+│   ├── AnimatedTile.hpp         # Animated tile manifest loader
+│   ├── PauseMenuScene.hpp       # Pause overlay
+│   └── *.hpp                    # Window, Image, Text, SpriteSheet, UI, etc.
+├── game_assets/                 # Sprites, backgrounds, tilesets, character frames
+├── levels/                      # Saved level JSON files
+├── players/                     # Saved character profile JSON files
+├── fonts/                       # TTF font files
+├── CMakeLists.txt               # Build configuration (C++23, vcpkg)
+└── CMakePresets.json            # Platform build presets (Linux, macOS ARM/Intel)
 ```
 
 ---
 
 ## Controls
 
+### Gameplay
+
 | Key | Action |
 |-----|--------|
-| A / D | Move left / right (or up/down on side walls) |
-| Space | Jump (gravity mode only) |
-| Left Ctrl | Crouch — reduces hitbox, decelerates with friction |
+| A / D (or arrows) | Move left / right |
+| W / S on ladder | Climb up / down |
+| Space | Jump |
+| Left Ctrl | Crouch |
+| F | Slash (sword attack) |
+| ESC | Pause menu |
+| F1 | Toggle debug hitbox overlay |
+| F11 | Toggle fullscreen |
 | R | Retry after game over |
+
+### Level Editor
+
+| Key | Action |
+|-----|--------|
+| Arrow keys / Middle-click drag | Pan camera |
+| Scroll wheel | Zoom in / out |
+| 1-9 | Switch tools |
+| G | Toggle gravity mode |
+| Delete | Delete selected tiles |
+| Ctrl+S | Save level |
+| Ctrl+Z | Undo |
+| Play button | Test level in-game |
 
 ---
 
-## Current Demo
+## Workflow
 
-The game opens on a title screen. Pressing ENTER or clicking Play drops into the gameplay scene where a player and 15 randomly-positioned slime enemies spawn.
-
-**Free mode:** WASD to move with friction-based deceleration.
-
-**Gravity mode:** Triggered by touching any screen wall. Gravity pulls the player toward that wall. The sprite rotates to appear upright relative to the gravity wall. Walking perpendicular to the wall, jumping, and crouching all work on any wall.
-
-**Zero gravity punishment:** Taking a hit from an enemy releases the player into free-float mode for 15 seconds. A countdown HUD element displays the remaining time. `CenterPullSystem` gently pulls the player toward the screen center during this period. Gravity resumes automatically when the timer expires.
-
-**Combat:** Each slime hit deals 15 damage with 1.5 seconds of invincibility. At 0 health a game over screen appears with a Retry button (click or press R) that respawns everything fresh.
+1. Launch the game — the title screen offers Play (start a level) or Editor (open the level editor)
+2. In the editor, place tiles from the palette, set tile properties (solid, prop, hazard, ladder, slope, action, moving, power-up), place enemies and coins, set the player spawn point, and configure the background and gravity mode
+3. Save levels to the `levels/` directory as JSON files
+4. Create custom characters in the Player Creator — assign sprite folders per animation slot, configure hitboxes and FPS, and save to `players/`
+5. Create animated tiles in the Tile Animation Creator — select a folder of PNG frames, preview the animation, and save a manifest JSON
+6. Press Play in the editor to test the level with your selected character, then ESC to return to the editor
 
 ---
 
