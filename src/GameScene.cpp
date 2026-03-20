@@ -915,28 +915,8 @@ void GameScene::Spawn() {
     if (!mLevelPath.empty()) {
         for (const auto& c : mLevel.coins)
             spawnCoin(c.x, c.y);
-    } else {
-        for (int i = 0; i < COIN_COUNT; i++) {
-            int   wall = rand() % 3;
-            float cx = 0, cy = 0;
-            int   pad = COIN_SIZE + 10;
-            switch (wall) {
-                case 0:
-                    cx = 5;
-                    cy = (float)(pad + rand() % (mWindow->GetHeight() - pad * 2));
-                    break;
-                case 1:
-                    cx = (float)(pad + rand() % (mWindow->GetWidth() - pad * 2));
-                    cy = 5;
-                    break;
-                case 2:
-                    cx = (float)(mWindow->GetWidth() - COIN_SIZE - 5);
-                    cy = (float)(pad + rand() % (mWindow->GetHeight() - pad * 2));
-                    break;
-            }
-            spawnCoin(cx, cy);
-        }
     }
+
     totalCoins = (int)reg.view<CoinTag>().size();
 
     mLevelW = (float)mWindow->GetWidth();
@@ -1002,10 +982,8 @@ void GameScene::Spawn() {
         }
     }
 
-    float playerX =
-        mLevelPath.empty() ? (float)(mWindow->GetWidth() / 2 - pColW / 2) : mLevel.player.x;
-    float playerY =
-        mLevelPath.empty() ? (float)(mWindow->GetHeight() - pColH) : mLevel.player.y;
+    float playerX = mLevel.player.x;
+    float playerY = mLevel.player.y;
 
     auto player = reg.create();
     reg.emplace<Transform>(player, playerX, playerY);

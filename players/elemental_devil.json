@@ -5,10 +5,10 @@
             "folderPath": "game_assets/char_sprites/elemental_devil/Idle",
             "fps": 0.0,
             "hitbox": {
-                "h": 116,
+                "h": 87,
                 "w": 50,
-                "x": 64,
-                "y": 36
+                "x": 43,
+                "y": 31
             },
             "slot": 0
         },
@@ -16,10 +16,10 @@
             "folderPath": "game_assets/char_sprites/elemental_devil/Walk",
             "fps": 21.0,
             "hitbox": {
-                "h": 112,
-                "w": 65,
-                "x": 53,
-                "y": 37
+                "h": 82,
+                "w": 51,
+                "x": 39,
+                "y": 31
             },
             "slot": 1
         },
@@ -27,10 +27,10 @@
             "folderPath": "game_assets/char_sprites/elemental_devil/Crouch",
             "fps": 0.0,
             "hitbox": {
-                "h": 94,
-                "w": 99,
-                "x": 10,
-                "y": 62
+                "h": 69,
+                "w": 77,
+                "x": 13,
+                "y": 45
             },
             "slot": 2
         },
@@ -38,10 +38,10 @@
             "folderPath": "game_assets/char_sprites/elemental_devil/Jump",
             "fps": 0.0,
             "hitbox": {
-                "h": 111,
-                "w": 63,
-                "x": 53,
-                "y": 35
+                "h": 92,
+                "w": 52,
+                "x": 40,
+                "y": 24
             },
             "slot": 3
         },
@@ -49,10 +49,10 @@
             "folderPath": "game_assets/char_sprites/elemental_devil/Fall",
             "fps": 0.0,
             "hitbox": {
-                "h": 110,
-                "w": 62,
-                "x": 50,
-                "y": 32
+                "h": 104,
+                "w": 58,
+                "x": 34,
+                "y": 8
             },
             "slot": 4
         },
@@ -60,10 +60,10 @@
             "folderPath": "game_assets/char_sprites/elemental_devil/Slash",
             "fps": 33.0,
             "hitbox": {
-                "h": 117,
-                "w": 67,
-                "x": 64,
-                "y": 37
+                "h": 87,
+                "w": 96,
+                "x": 41,
+                "y": 33
             },
             "slot": 5
         },
@@ -71,10 +71,10 @@
             "folderPath": "game_assets/char_sprites/elemental_devil/Hurt",
             "fps": 19.0,
             "hitbox": {
-                "h": 113,
-                "w": 55,
-                "x": 58,
-                "y": 36
+                "h": 83,
+                "w": 49,
+                "x": 38,
+                "y": 34
             },
             "slot": 6
         },
@@ -82,14 +82,14 @@
             "folderPath": "game_assets/char_sprites/elemental_devil/Death",
             "fps": 0.0,
             "hitbox": {
-                "h": 115,
-                "w": 102,
-                "x": 23,
-                "y": 41
+                "h": 61,
+                "w": 105,
+                "x": 12,
+                "y": 55
             },
             "slot": 7
         }
     ],
-    "spriteH": 180,
-    "spriteW": 180
+    "spriteH": 140,
+    "spriteW": 140
 }

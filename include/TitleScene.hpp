@@ -26,8 +26,8 @@ class TitleScene : public Scene {
         mRenderer  = window.GetRenderer();
         SDL_GetWindowSize(mSDLWindow, &mWindowW, &mWindowH);
 
-        background = std::make_unique<Image>("game_assets/backgrounds/bg_castle.png",
-                                             FitMode::PRESCALED);
+        background = std::make_unique<Image>("game_assets/backgrounds/5.png",
+                                             FitMode::COVER);
 
         SDL_Rect windowRect = {0, 0, mWindowW, mWindowH};
 
@@ -37,9 +37,9 @@ class TitleScene : public Scene {
         const int rowGap = 14;
         const int cx    = mWindowW / 2;
 
-        auto [titleX, titleY] = Text::CenterInRect("SDL Sandbox", 72, windowRect);
+        auto [titleX, titleY] = Text::CenterInRect("Forge2D", 72, windowRect);
         const int row1Y = mWindowH / 2 - 60;
-        titleText = std::make_unique<Text>("SDL Sandbox", SDL_Color{255, 255, 255, 255},
+        titleText = std::make_unique<Text>("Forge2D", SDL_Color{255, 255, 255, 255},
                                            titleX, row1Y - 80 - 72, 72);
         const int row2Y = row1Y + btnH + rowGap;
 

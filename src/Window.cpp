@@ -13,7 +13,7 @@ Window::Window() {
     int winW = std::min(usable.w, 1600);
     int winH = std::min(usable.h, 1050);
 
-    SDL_Window* winPtr = SDL_CreateWindow("SDL3 Sandbox", winW, winH,
+    SDL_Window* winPtr = SDL_CreateWindow("Forge2D", winW, winH,
                                           SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     if (!winPtr)
         throw std::runtime_error(std::string("Failed to create Window: ") + SDL_GetError());

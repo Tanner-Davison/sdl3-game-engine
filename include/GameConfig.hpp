@@ -69,12 +69,10 @@ inline constexpr float SLOPE_SNAP_LOOKAHEAD = 40.0f;
 inline constexpr float SLOPE_STICK_VELOCITY = 16.0f;
 
 // -- World / spawn counts -----------------------------------------------------
-inline constexpr int GRAVITYSLUGSCOUNT = 20;
-inline constexpr int COIN_COUNT        = 8;
-inline constexpr int COIN_SIZE         = 40;
+inline constexpr int COIN_SIZE = 40;
 
 // -- Camera -------------------------------------------------------------------
-inline constexpr float CAM_LERP_SPEED = 6.0f; // higher = snappier follow
+inline constexpr float CAM_LERP_SPEED = 15.0f; // higher = snappier follow
 inline constexpr float CAM_DEADZONE_X =
     80.0f; // px from center before camera moves horizontally
 inline constexpr float CAM_DEADZONE_Y =

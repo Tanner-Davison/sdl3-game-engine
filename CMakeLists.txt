@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
-project(sdl-sandbox
+project(forge2d
         VERSION 1.0
-        DESCRIPTION "SDL3 Game Engine Sandbox"
+        DESCRIPTION "Forge2D Game Engine"
         LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
