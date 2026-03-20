@@ -1,0 +1,12 @@
+-A proper asset pipeline (right now assets are loaded at runtime from raw paths)
+-Audio system
+-The level editor fully migrated to GPU rendering rather than SDL_Surface blits
+-Unit tests for the physics/collision systems
+-The Windows native build working
+- Create a sequential level game maker that can take multiple levels and create sequences once the level completes automatically continues in the sequence we selected 
+- add more powerups 
+- create more game goals..
+- create a enemy creator like character creator but for enemies 
+
+
+
