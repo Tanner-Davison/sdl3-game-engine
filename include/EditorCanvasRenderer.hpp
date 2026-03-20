@@ -17,7 +17,7 @@
 #include "EditorPalette.hpp"
 #include "EditorSurfaceCache.hpp"
 #include "Image.hpp"
-#include "Level.hpp"
+#include "LevelData.hpp"
 #include "SpriteSheet.hpp"
 #include "Text.hpp"
 #include "Window.hpp"

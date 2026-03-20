@@ -19,7 +19,7 @@
 
 #include "AnimatedTile.hpp"
 #include "EditorPalette.hpp"
-#include "Level.hpp"
+#include "LevelData.hpp"
 #include <SDL3/SDL.h>
 #include <functional>
 #include <string>

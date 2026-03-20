@@ -2,7 +2,7 @@
 #include "AnimatedTile.hpp"
 #include "Components.hpp"
 #include "Image.hpp"
-#include "Level.hpp"
+#include "LevelData.hpp"
 #include "LevelSerializer.hpp"
 #include "PlayerProfile.hpp"
 #include "Rectangle.hpp"

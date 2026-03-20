@@ -17,7 +17,7 @@
 
 #include "EditorPalette.hpp"
 #include "EditorSurfaceCache.hpp"
-#include "Level.hpp"
+#include "LevelData.hpp"
 #include <functional>
 #include <string>
 

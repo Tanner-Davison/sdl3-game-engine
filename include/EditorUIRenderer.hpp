@@ -19,7 +19,7 @@
 #include "EditorPalette.hpp"
 #include "EditorSurfaceCache.hpp"
 #include "EditorToolbar.hpp"
-#include "Level.hpp"
+#include "LevelData.hpp"
 #include "Text.hpp"
 #include "Window.hpp"
 #include "tools/EditorTools.hpp"
