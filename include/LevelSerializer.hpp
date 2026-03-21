@@ -29,41 +29,49 @@ inline bool SaveLevel(const Level& level, const std::string& path) {
 
     j["tiles"] = json::array();
     for (const auto& t : level.tiles) {
+        // Slope
         std::string slopeStr = "none";
-        if (t.slope == SlopeType::DiagUpRight) slopeStr = "diagupright";
-        if (t.slope == SlopeType::DiagUpLeft)  slopeStr = "diagupleft";
-        j["tiles"].push_back({{"x", t.x},
-                              {"y", t.y},
-                              {"w", t.w},
-                              {"h", t.h},
-                              {"img", t.imagePath},
-                              {"prop", t.prop},
-                              {"ladder", t.ladder},
-                              {"action", t.action},
-                              {"actionGroup", t.actionGroup},
-                              {"actionHits",  t.actionHits},
-                              {"actionDestroyAnim", t.actionDestroyAnim},
-                              {"slope", slopeStr},
-                              {"slopeHeightFrac", t.slopeHeightFrac},
-                              {"rotation", t.rotation},
-                              {"hazard", t.hazard},
-                              {"antiGravity", t.antiGravity},
-                              {"hitboxOffX",   t.hitboxOffX},
-                              {"hitboxOffY",   t.hitboxOffY},
-                              {"hitboxW",      t.hitboxW},
-                              {"hitboxH",      t.hitboxH},
-                              {"moving",       t.moving},
-                              {"moveHoriz",    t.moveHoriz},
-                              {"moveRange",    t.moveRange},
-                              {"moveSpeed",    t.moveSpeed},
-                              {"moveGroupId",  t.moveGroupId},
-                              {"moveLoop",     t.moveLoop},
-                              {"moveTrigger",  t.moveTrigger},
-                              {"movePhase",    t.movePhase},
-                              {"moveLoopDir",  t.moveLoopDir},
-                              {"powerUp",         t.powerUp},
-                              {"powerUpType",     t.powerUpType},
-                              {"powerUpDuration", t.powerUpDuration}});
+        SlopeType   slopeType = t.GetSlopeType();
+        if (slopeType == SlopeType::DiagUpRight) slopeStr = "diagupright";
+        if (slopeType == SlopeType::DiagUpLeft)  slopeStr = "diagupleft";
+
+        json tile = {
+            {"x", t.x}, {"y", t.y}, {"w", t.w}, {"h", t.h},
+            {"img",         t.imagePath},
+            {"rotation",    t.rotation},
+            {"prop",        t.prop},
+            {"ladder",      t.ladder},
+            {"hazard",      t.hazard},
+            {"antiGravity", t.antiGravity},
+            // Action
+            {"action",           t.HasAction()},
+            {"actionGroup",      t.HasAction() ? t.action->group          : 0},
+            {"actionHits",       t.HasAction() ? t.action->hitsRequired   : 1},
+            {"actionDestroyAnim",t.HasAction() ? t.action->destroyAnimPath : std::string{}},
+            // Slope
+            {"slope",            slopeStr},
+            {"slopeHeightFrac",  t.HasSlope() ? t.slope->heightFrac : 1.0f},
+            // Hitbox
+            {"hitboxOffX",  t.HasHitbox() ? t.hitbox->offX : 0},
+            {"hitboxOffY",  t.HasHitbox() ? t.hitbox->offY : 0},
+            {"hitboxW",     t.HasHitbox() ? t.hitbox->w    : 0},
+            {"hitboxH",     t.HasHitbox() ? t.hitbox->h    : 0},
+            // Moving platform
+            {"moving",      t.HasMoving()},
+            {"moveHoriz",   t.HasMoving() ? t.moving->horiz   : true},
+            {"moveRange",   t.HasMoving() ? t.moving->range   : 96.0f},
+            {"moveSpeed",   t.HasMoving() ? t.moving->speed   : 60.0f},
+            {"moveGroupId", t.HasMoving() ? t.moving->groupId : 0},
+            {"moveLoop",    t.HasMoving() ? t.moving->loop    : false},
+            {"moveTrigger", t.HasMoving() ? t.moving->trigger : false},
+            {"movePhase",   t.HasMoving() ? t.moving->phase   : 0.0f},
+            {"moveLoopDir", t.HasMoving() ? t.moving->loopDir : 1},
+            // Power-up
+            {"powerUp",         t.HasPowerUp()},
+            {"powerUpType",     t.HasPowerUp() ? t.powerUp->type     : std::string{}},
+            {"powerUpDuration", t.HasPowerUp() ? t.powerUp->duration : 15.0f},
+        };
+        j["tiles"].push_back(std::move(tile));
     }
 
     std::ofstream file(path);
@@ -71,7 +79,7 @@ inline bool SaveLevel(const Level& level, const std::string& path) {
         std::print("Failed to save level: {}\n", path);
         return false;
     }
-    file << j.dump(4); // pretty print with 4-space indent
+    file << j.dump(4);
     std::print("Level saved: {}\n", path);
     return true;
 }
@@ -119,47 +127,78 @@ inline bool LoadLevel(const std::string& path, Level& out) {
 
     out.tiles.clear();
     for (const auto& t : j.value("tiles", json::array())) {
-        std::string slopeStr = t.value("slope", std::string{"none"});
-        SlopeType slope = SlopeType::None;
-        if (slopeStr == "diagupright") slope = SlopeType::DiagUpRight;
-        if (slopeStr == "diagupleft")  slope = SlopeType::DiagUpLeft;
-        out.tiles.push_back({t.value("x", 0.0f),
-                             t.value("y", 0.0f),
-                             t.value("w", 40),
-                             t.value("h", 40),
-                             t.value("img", std::string{}),
-                             t.value("prop", false),
-                             t.value("ladder", false),
-                             t.value("action", false),
-                             t.value("actionGroup", 0),
-                             t.value("actionHits",  1),
-                             t.value("actionDestroyAnim", std::string{}),
-                             slope,
-                             t.value("slopeHeightFrac", 1.0f),
-                             t.value("rotation", 0),
-                             t.value("hazard", false),
-                             t.value("antiGravity", false),
-                             t.value("hitboxOffX",  0),
-                             t.value("hitboxOffY",  0),
-                             t.value("hitboxW",     0),
-                             t.value("hitboxH",     0),
-                             t.value("moving",      false),
-                             t.value("moveHoriz",   true),
-                             t.value("moveRange",   96.0f),
-                             t.value("moveSpeed",   60.0f),
-                             t.value("moveGroupId", 0),
-                             t.value("moveLoop",    false),
-                             t.value("moveTrigger", false),
-                             t.value("movePhase",   0.0f),
-                             t.value("moveLoopDir", 1),
-                             t.value("powerUp",         false),
-                             t.value("powerUpType",     std::string{}),
-                             t.value("powerUpDuration", 15.0f)});
+        TileSpawn ts;
+        ts.x          = t.value("x", 0.0f);
+        ts.y          = t.value("y", 0.0f);
+        ts.w          = t.value("w", 40);
+        ts.h          = t.value("h", 40);
+        ts.imagePath  = t.value("img", std::string{});
+        ts.rotation   = t.value("rotation", 0);
+        ts.prop       = t.value("prop", false);
+        ts.ladder     = t.value("ladder", false);
+        ts.hazard     = t.value("hazard", false);
+        ts.antiGravity = t.value("antiGravity", false);
+
+        // Action
+        if (t.value("action", false)) {
+            ActionData ad;
+            ad.group          = t.value("actionGroup", 0);
+            ad.hitsRequired   = t.value("actionHits", 1);
+            ad.destroyAnimPath = t.value("actionDestroyAnim", std::string{});
+            ts.action = ad;
+        }
+
+        // Slope
+        {
+            std::string slopeStr = t.value("slope", std::string{"none"});
+            SlopeType slopeType = SlopeType::None;
+            if (slopeStr == "diagupright") slopeType = SlopeType::DiagUpRight;
+            if (slopeStr == "diagupleft")  slopeType = SlopeType::DiagUpLeft;
+            if (slopeType != SlopeType::None) {
+                SlopeData sd;
+                sd.type       = slopeType;
+                sd.heightFrac = t.value("slopeHeightFrac", 1.0f);
+                ts.slope = sd;
+            }
+        }
+
+        // Hitbox
+        {
+            int hbOffX = t.value("hitboxOffX", 0);
+            int hbOffY = t.value("hitboxOffY", 0);
+            int hbW    = t.value("hitboxW", 0);
+            int hbH    = t.value("hitboxH", 0);
+            if (hbW > 0 || hbH > 0) {
+                ts.hitbox = HitboxData{hbOffX, hbOffY, hbW, hbH};
+            }
+        }
+
+        // Moving platform
+        if (t.value("moving", false)) {
+            MovingPlatformData mp;
+            mp.horiz   = t.value("moveHoriz", true);
+            mp.range   = t.value("moveRange", 96.0f);
+            mp.speed   = t.value("moveSpeed", 60.0f);
+            mp.groupId = t.value("moveGroupId", 0);
+            mp.loop    = t.value("moveLoop", false);
+            mp.trigger = t.value("moveTrigger", false);
+            mp.phase   = t.value("movePhase", 0.0f);
+            mp.loopDir = t.value("moveLoopDir", 1);
+            ts.moving = mp;
+        }
+
+        // Power-up
+        if (t.value("powerUp", false)) {
+            PowerUpData pu;
+            pu.type     = t.value("powerUpType", std::string{});
+            pu.duration = t.value("powerUpDuration", 15.0f);
+            ts.powerUp = pu;
+        }
+
+        out.tiles.push_back(std::move(ts));
     }
 
     std::print("Level loaded: {} ({} coins, {} enemies)\n",
-               out.name,
-               out.coins.size(),
-               out.enemies.size());
+               out.name, out.coins.size(), out.enemies.size());
     return true;
 }

@@ -124,16 +124,17 @@ void GameScene::Load(Window& window) {
                 return std::make_unique<SpriteSheet>(pathStrs, KW, KH);
             }
         }
-        // No custom sprites for this slot — fall back to frost knight at its
-        // native dimensions. We deliberately ignore KW/KH here: those are the
-        // custom character's sprite size and must NOT be applied to the frost
-        // knight sheets (doing so squashes/stretches the wrong character).
+        // No custom sprites for this slot — fall back to frost knight.
+        // When a profile is active with explicit sprite dimensions, load the
+        // frost knight frames at those dimensions so every animation state
+        // renders at the size the player configured in the character creator.
+        // Without a profile the knight loads at its native 120x160.
         return std::make_unique<SpriteSheet>(
             "game_assets/frost_knight_png_sequences/" + fallbackFolder + "/",
             fallbackPrefix,
             fallbackCount,
-            PLAYER_SPRITE_WIDTH,
-            PLAYER_SPRITE_HEIGHT,
+            KW,
+            KH,
             3);
     };
 
@@ -925,11 +926,11 @@ void GameScene::Spawn() {
     mLevelH = (float)mWindow->GetHeight();
     for (const auto& ts : mLevel.tiles) {
         float right = ts.x + ts.w, bottom = ts.y + ts.h;
-        if (ts.moving) {
-            if (ts.moveHoriz)
-                right = std::max(right, ts.x + ts.moveRange + ts.w);
+        if (ts.HasMoving()) {
+            if (ts.moving->horiz)
+                right = std::max(right, ts.x + ts.moving->range + ts.w);
             else
-                bottom = std::max(bottom, ts.y + ts.moveRange + ts.h);
+                bottom = std::max(bottom, ts.y + ts.moving->range + ts.h);
         }
         if (right > mLevelW)
             mLevelW = right;
@@ -939,26 +940,9 @@ void GameScene::Spawn() {
     mLevelW += (float)mWindow->GetWidth() * 0.25f;
     mLevelH += (float)mWindow->GetHeight() * 0.25f;
 
-    {
-        float px  = mLevel.player.x + PLAYER_STAND_WIDTH * 0.5f;
-        float py  = mLevel.player.y + PLAYER_STAND_HEIGHT * 0.5f;
-        mCamera.x = px - mWindow->GetWidth() * 0.5f;
-        mCamera.y = py - mWindow->GetHeight() * 0.5f;
-        if (mCamera.x < 0)
-            mCamera.x = 0;
-        if (mCamera.y < 0)
-            mCamera.y = 0;
-        if (mCamera.x + mWindow->GetWidth() > mLevelW)
-            mCamera.x = mLevelW - mWindow->GetWidth();
-        if (mCamera.y + mWindow->GetHeight() > mLevelH)
-            mCamera.y = mLevelH - mWindow->GetHeight();
-        if (mCamera.x < 0)
-            mCamera.x = 0;
-        if (mCamera.y < 0)
-            mCamera.y = 0;
-    }
-
-    // ── Player spawn ──────────────────────────────────────────────────────────
+    // ── Player collider dimensions ────────────────────────────────────────────
+    // Computed early so the camera initialisation below can centre on the
+    // actual collider rather than the hardcoded frost-knight defaults.
     int pColW, pColH, pROffX, pROffY;
     {
         PlayerProfile tmpProfile;
@@ -982,6 +966,25 @@ void GameScene::Spawn() {
             pROffX             = -insetX;
             pROffY             = -insetT;
         }
+    }
+
+    {
+        float px  = mLevel.player.x + pColW * 0.5f;
+        float py  = mLevel.player.y + pColH * 0.5f;
+        mCamera.x = px - mWindow->GetWidth() * 0.5f;
+        mCamera.y = py - mWindow->GetHeight() * 0.5f;
+        if (mCamera.x < 0)
+            mCamera.x = 0;
+        if (mCamera.y < 0)
+            mCamera.y = 0;
+        if (mCamera.x + mWindow->GetWidth() > mLevelW)
+            mCamera.x = mLevelW - mWindow->GetWidth();
+        if (mCamera.y + mWindow->GetHeight() > mLevelH)
+            mCamera.y = mLevelH - mWindow->GetHeight();
+        if (mCamera.x < 0)
+            mCamera.x = 0;
+        if (mCamera.y < 0)
+            mCamera.y = 0;
     }
 
     float playerX = mLevel.player.x;
@@ -1141,15 +1144,15 @@ void GameScene::Spawn() {
             auto                  tile = reg.create();
             reg.emplace<Transform>(tile, ts.x, ts.y);
 
-            bool hasCustomHitbox = (ts.hitboxW > 0 || ts.hitboxH > 0);
-            int  colW = hasCustomHitbox ? (ts.hitboxW > 0 ? ts.hitboxW : ts.w) : ts.w;
-            int  colH = hasCustomHitbox ? (ts.hitboxH > 0 ? ts.hitboxH : ts.h) : ts.h;
+            bool hasCustomHitbox = ts.HasHitbox();
+            int  colW = hasCustomHitbox ? (ts.hitbox->w > 0 ? ts.hitbox->w : ts.w) : ts.w;
+            int  colH = hasCustomHitbox ? (ts.hitbox->h > 0 ? ts.hitbox->h : ts.h) : ts.h;
 
             if (ts.ladder)
                 reg.emplace<LadderTag>(tile);
-            else if (ts.slope != SlopeType::None) {
+            else if (ts.HasSlope()) {
                 reg.emplace<TileTag>(tile);
-                reg.emplace<SlopeCollider>(tile, ts.slope, ts.slopeHeightFrac);
+                reg.emplace<SlopeCollider>(tile, ts.slope->type, ts.slope->heightFrac);
             } else if (ts.hazard) {
                 reg.emplace<HazardTag>(tile);
                 if (!ts.prop)
@@ -1158,16 +1161,16 @@ void GameScene::Spawn() {
                 reg.emplace<TileTag>(tile);
             if (ts.prop)
                 reg.emplace<PropTag>(tile);
-            if (ts.action)
+            if (ts.HasAction())
                 reg.emplace<ActionTag>(tile,
-                                       ts.actionGroup,
-                                       ts.actionHits,
-                                       ts.actionHits,
-                                       ts.actionDestroyAnim);
+                                       ts.action->group,
+                                       ts.action->hitsRequired,
+                                       ts.action->hitsRequired,
+                                       ts.action->destroyAnimPath);
             if (!ts.prop || ts.hazard)
                 reg.emplace<Collider>(tile, colW, colH);
             if (hasCustomHitbox)
-                reg.emplace<ColliderOffset>(tile, ts.hitboxOffX, ts.hitboxOffY);
+                reg.emplace<ColliderOffset>(tile, ts.hitbox->offX, ts.hitbox->offY);
 
             reg.emplace<TileAnimTag>(tile);
             reg.emplace<Renderable>(tile, frameTex[0], std::move(frameRects), false);
@@ -1186,17 +1189,17 @@ void GameScene::Spawn() {
         auto tile = reg.create();
         reg.emplace<Transform>(tile, ts.x, ts.y);
 
-        bool hasCustomHitbox = (ts.hitboxW > 0 || ts.hitboxH > 0);
-        int  colW            = hasCustomHitbox ? (ts.hitboxW > 0 ? ts.hitboxW : ts.w) : ts.w;
-        int  colH            = hasCustomHitbox ? (ts.hitboxH > 0 ? ts.hitboxH : ts.h) : ts.h;
+        bool hasCustomHitbox = ts.HasHitbox();
+        int  colW            = hasCustomHitbox ? (ts.hitbox->w > 0 ? ts.hitbox->w : ts.w) : ts.w;
+        int  colH            = hasCustomHitbox ? (ts.hitbox->h > 0 ? ts.hitbox->h : ts.h) : ts.h;
 
         if (ts.ladder) {
             reg.emplace<LadderTag>(tile);
             reg.emplace<Collider>(tile, colW, colH);
-        } else if (ts.slope != SlopeType::None) {
+        } else if (ts.HasSlope()) {
             reg.emplace<TileTag>(tile);
             reg.emplace<Collider>(tile, colW, colH);
-            reg.emplace<SlopeCollider>(tile, ts.slope, ts.slopeHeightFrac);
+            reg.emplace<SlopeCollider>(tile, ts.slope->type, ts.slope->heightFrac);
         } else if (ts.hazard) {
             reg.emplace<HazardTag>(tile);
             reg.emplace<Collider>(tile, colW, colH);
@@ -1209,9 +1212,9 @@ void GameScene::Spawn() {
         }
         if (ts.prop)
             reg.emplace<PropTag>(tile);
-        if (ts.action)
+        if (ts.HasAction())
             reg.emplace<ActionTag>(
-                tile, ts.actionGroup, ts.actionHits, ts.actionHits, ts.actionDestroyAnim);
+                tile, ts.action->group, ts.action->hitsRequired, ts.action->hitsRequired, ts.action->destroyAnimPath);
 
         if (ts.antiGravity) {
             reg.emplace<FloatTag>(tile);
@@ -1222,43 +1225,44 @@ void GameScene::Spawn() {
             fs.bobPhase = (rand() % 628) * 0.01f;
             reg.emplace<FloatState>(tile, fs);
         }
-        if (ts.moving) {
+        if (ts.HasMoving()) {
+            const auto& mp = *ts.moving;
             // Moving platforms need PrevTransform so RenderSystem can
             // interpolate their draw position between physics ticks.
             if (!reg.all_of<PrevTransform>(tile))
                 reg.emplace<PrevTransform>(tile, ts.x, ts.y);
             reg.emplace<MovingPlatformTag>(tile);
             MovingPlatformState mps;
-            mps.horiz     = ts.moveHoriz;
-            mps.range     = ts.moveRange;
-            mps.speed     = ts.moveSpeed;
-            mps.groupId   = ts.moveGroupId;
+            mps.horiz     = mp.horiz;
+            mps.range     = mp.range;
+            mps.speed     = mp.speed;
+            mps.groupId   = mp.groupId;
             mps.originX   = ts.x;
             mps.originY   = ts.y;
-            mps.loop      = ts.moveLoop;
-            mps.trigger   = ts.moveTrigger;
+            mps.loop      = mp.loop;
+            mps.trigger   = mp.trigger;
             mps.triggered = false;
-            if (ts.moveLoop) {
-                mps.phase   = ts.movePhase * ts.moveRange;
-                mps.loopDir = ts.moveLoopDir;
-                if (ts.moveHoriz)
+            if (mp.loop) {
+                mps.phase   = mp.phase * mp.range;
+                mps.loopDir = mp.loopDir;
+                if (mp.horiz)
                     reg.get<Transform>(tile).x = ts.x + mps.phase;
             } else {
-                mps.phase   = ts.movePhase * 6.28318f;
+                mps.phase   = mp.phase * 6.28318f;
                 mps.loopDir = 1;
             }
             reg.emplace<MovingPlatformState>(tile, mps);
         }
         if (hasCustomHitbox)
-            reg.emplace<ColliderOffset>(tile, ts.hitboxOffX, ts.hitboxOffY);
-        if (ts.powerUp && !ts.powerUpType.empty()) {
+            reg.emplace<ColliderOffset>(tile, ts.hitbox->offX, ts.hitbox->offY);
+        if (ts.HasPowerUp() && !ts.powerUp->type.empty()) {
             PowerUpType puType = PowerUpType::None;
-            if (ts.powerUpType == "antigravity")
+            if (ts.powerUp->type == "antigravity")
                 puType = PowerUpType::AntiGravity;
-            // Future: else if (ts.powerUpType == "speedboost") puType =
+            // Future: else if (ts.powerUp->type == "speedboost") puType =
             // PowerUpType::SpeedBoost;
             if (puType != PowerUpType::None)
-                reg.emplace<PowerUpTag>(tile, puType, ts.powerUpDuration);
+                reg.emplace<PowerUpTag>(tile, puType, ts.powerUp->duration);
         }
 
         std::vector<SDL_Rect> tileFrame = {{0, 0, ts.w, ts.h}};

@@ -28,8 +28,8 @@ class PropTool final : public EditorTool {
             t.prop        = nowProp;
             if (nowProp) {
                 t.ladder = false;
-                t.action = false;
-                t.slope  = SlopeType::None;
+                t.action.reset();
+                t.slope.reset();
             }
             bool isHazard = t.hazard;
             ctx.SetStatus(std::string("Tile ") + std::to_string(ti) +
@@ -74,8 +74,8 @@ class LadderTool final : public EditorTool {
             t.ladder        = nowLadder;
             if (nowLadder) {
                 t.prop   = false;
-                t.action = false;
-                t.slope  = SlopeType::None;
+                t.action.reset();
+                t.slope.reset();
             }
             ctx.SetStatus(std::string("Tile ") + std::to_string(ti) +
                           (nowLadder ? " -> ladder (climbable)"
@@ -114,23 +114,22 @@ class SlopeTool final : public EditorTool {
         int ti = ctx.HitTile(mx, my);
         if (ti >= 0) {
             auto&       t = ctx.level.tiles[ti];
-            SlopeType   next;
+            SlopeType   curType = t.GetSlopeType();
             std::string label;
-            if (t.slope == SlopeType::None) {
-                next  = SlopeType::DiagUpRight;
+            if (curType == SlopeType::None) {
+                t.slope = SlopeData{SlopeType::DiagUpRight, 1.0f};
                 label = "DiagUpRight (rises left->right)";
-            } else if (t.slope == SlopeType::DiagUpRight) {
-                next  = SlopeType::DiagUpLeft;
+            } else if (curType == SlopeType::DiagUpRight) {
+                t.slope->type = SlopeType::DiagUpLeft;
                 label = "DiagUpLeft  (rises right->left)";
             } else {
-                next  = SlopeType::None;
+                t.slope.reset();
                 label = "slope removed";
             }
-            t.slope = next;
-            if (next != SlopeType::None) {
+            if (t.HasSlope()) {
                 t.prop   = false;
                 t.ladder = false;
-                t.action = false;
+                t.action.reset();
             }
             ctx.SetStatus(std::string("Tile ") + std::to_string(ti) + " -> " + label);
             return ToolResult::Consumed;
@@ -142,8 +141,8 @@ class SlopeTool final : public EditorTool {
                         int mx, int my, SDL_Keymod /*mods*/) override {
         if (my < ctx.ToolbarH() || mx >= ctx.CanvasW()) return ToolResult::Ignored;
         int hovSlope = ctx.HitTile(mx, my);
-        if (hovSlope >= 0 && ctx.level.tiles[hovSlope].slope != SlopeType::None) {
-            float& frac = ctx.level.tiles[hovSlope].slopeHeightFrac;
+        if (hovSlope >= 0 && ctx.level.tiles[hovSlope].HasSlope()) {
+            float& frac = ctx.level.tiles[hovSlope].slope->heightFrac;
             frac = std::clamp(frac + wheelY * 0.05f, 0.05f, 1.0f);
             frac = std::round(frac * 20.0f) / 20.0f;
             ctx.SetStatus("Slope height: " + std::to_string(static_cast<int>(frac * 100)) +
@@ -186,8 +185,8 @@ class HazardTool final : public EditorTool {
             t.hazard        = nowHazard;
             if (nowHazard) {
                 t.ladder = false;
-                t.action = false;
-                t.slope  = SlopeType::None;
+                t.action.reset();
+                t.slope.reset();
             }
             bool isProp = t.prop;
             ctx.SetStatus(std::string("Tile ") + std::to_string(ti) +

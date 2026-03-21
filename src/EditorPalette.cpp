@@ -1,7 +1,7 @@
 #include "EditorPalette.hpp"
 #include "AnimatedTile.hpp"
 #include "EditorSurfaceCache.hpp"
-#include "Level.hpp"
+#include "LevelData.hpp"
 #include "Text.hpp"
 #include <SDL3_image/SDL_image.h>
 #include <algorithm>
@@ -14,7 +14,9 @@ namespace fs = std::filesystem;
 // Destruction / cleanup
 // ═══════════════════════════════════════════════════════════════════════════════
 
-EditorPalette::~EditorPalette() { Clear(); }
+EditorPalette::~EditorPalette() {
+    Clear();
+}
 
 void EditorPalette::Clear() {
     FreeTileItems();
@@ -175,8 +177,8 @@ void EditorPalette::LoadTileView(const std::string& dir, const Level& level) {
         }
 
         PaletteItem item;
-        item.path  = p.string();
-        item.label = def.name + " [~" + std::to_string(def.framePaths.size()) + "f]";
+        item.path     = p.string();
+        item.label    = def.name + " [~" + std::to_string(def.framePaths.size()) + "f]";
         item.isFolder = false;
         item.thumb    = thumb;
         item.full     = thumb ? SDL_DuplicateSurface(thumb) : nullptr;
@@ -226,8 +228,7 @@ void EditorPalette::LoadBgPalette(const Level& level) {
     }
 }
 
-void EditorPalette::ApplyBackground(int idx, Level& level,
-                                    const ApplyBgCallback& onApply) {
+void EditorPalette::ApplyBackground(int idx, Level& level, const ApplyBgCallback& onApply) {
     if (idx < 0 || idx >= static_cast<int>(mBgItems.size()))
         return;
     mSelectedBg      = idx;
@@ -241,9 +242,8 @@ void EditorPalette::ApplyBackground(int idx, Level& level,
 // ═══════════════════════════════════════════════════════════════════════════════
 
 bool EditorPalette::CheckDoubleClick(int index) {
-    Uint64 now  = SDL_GetTicks();
-    bool   isDbl = (index == mLastClickIndex &&
-                    (now - mLastClickTime) < DOUBLE_CLICK_MS);
+    Uint64 now      = SDL_GetTicks();
+    bool   isDbl    = (index == mLastClickIndex && (now - mLastClickTime) < DOUBLE_CLICK_MS);
     mLastClickTime  = now;
     mLastClickIndex = index;
     return isDbl;
@@ -266,8 +266,7 @@ void EditorPalette::SeedCacheForLevel(const Level& level) {
         if (ts.imagePath.empty() || mCache->HasTileSurface(ts.imagePath))
             continue;
         if (!needed.contains(ts.imagePath))
-            needed[ts.imagePath] = {ts.imagePath, ts.w, ts.h,
-                                    IsAnimatedTile(ts.imagePath)};
+            needed[ts.imagePath] = {ts.imagePath, ts.w, ts.h, IsAnimatedTile(ts.imagePath)};
     }
 
     for (auto& [path, info] : needed) {

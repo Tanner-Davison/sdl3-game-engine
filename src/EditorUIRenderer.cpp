@@ -605,7 +605,7 @@ void EditorUIRenderer::RenderAnimPicker(
         int ex  = px+PAD+col*COL_W;
         int ey2 = ey+PAD+row*(ROW_H+PAD);
         SDL_Rect cell = {ex, ey2, COL_W-PAD, ROW_H};
-        bool isCur = (entry.path == tgt.actionDestroyAnim);
+        bool isCur = (tgt.HasAction() && entry.path == tgt.action->destroyAnimPath);
         SDL_Color cbg = isCur?SDL_Color{80,20,130,220}:SDL_Color{35,28,50,200};
         SDL_Color cbd = isCur?SDL_Color{200,100,255,255}:SDL_Color{80,60,110,200};
         DrawRect(screen, cell, cbg);
@@ -666,9 +666,10 @@ void EditorUIRenderer::RenderPowerUpPopup(SDL_Surface* screen, const Level& leve
     }
 
     int ry = py + TITLE_H;
-    const std::string curType = level.tiles[pu.tileIdx].powerUpType;
+    const auto& puTile = level.tiles[pu.tileIdx];
+    const std::string curType = puTile.HasPowerUp() ? puTile.powerUp->type : "";
     for (int i = 0; i < (int)reg.size(); i++) {
-        bool     isCur = (level.tiles[pu.tileIdx].powerUp && curType==reg[i].id);
+        bool     isCur = (puTile.HasPowerUp() && curType==reg[i].id);
         SDL_Rect row   = {px+PAD, ry+i*(ROW_H+2), PW-PAD*2, ROW_H};
         DrawRect(screen, row, isCur?SDL_Color{20,80,160,220}:SDL_Color{30,35,55,200});
         DrawOutline(screen, row, isCur?SDL_Color{80,180,255,255}:SDL_Color{50,60,90,200});
@@ -679,7 +680,7 @@ void EditorUIRenderer::RenderPowerUpPopup(SDL_Surface* screen, const Level& leve
     // None row
     {
         int noneY=(int)reg.size()*(ROW_H+2);
-        bool isCur=!level.tiles[pu.tileIdx].powerUp;
+        bool isCur=!level.tiles[pu.tileIdx].HasPowerUp();
         SDL_Rect row={px+PAD, ry+noneY, PW-PAD*2, ROW_H};
         DrawRect(screen, row, isCur?SDL_Color{60,20,20,220}:SDL_Color{30,35,55,200});
         DrawOutline(screen, row, isCur?SDL_Color{200,80,80,255}:SDL_Color{50,60,90,200});

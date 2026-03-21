@@ -219,7 +219,7 @@ bool EditorPopups::HandleAnimPickerEvent(const SDL_Event& e, Ctx& ctx) {
             const auto& entry = animPickerEntries[i];
             // Write back through the level reference
             if (animPickerTile < (int)ctx.level.tiles.size()) {
-                ctx.level.tiles[animPickerTile].actionDestroyAnim = entry.path;
+                ctx.level.tiles[animPickerTile].action->destroyAnimPath = entry.path;
                 if (!entry.path.empty())
                     ctx.getAnimThumb(entry.path); // warm the cache
                 ctx.setStatus("Tile " + std::to_string(animPickerTile) +
@@ -260,9 +260,7 @@ bool EditorPopups::HandlePowerUpPickerEvent(const SDL_Event& e, Ctx& ctx) {
                         powerUpRect.w - PAD * 2, ROW_H};
         if (HitTest(row, mx, my)) {
             auto& t           = ctx.level.tiles[powerUpTileIdx];
-            t.powerUp         = true;
-            t.powerUpType     = reg[i].id;
-            t.powerUpDuration = reg[i].defaultDuration;
+            t.powerUp         = PowerUpData{reg[i].id, reg[i].defaultDuration};
             ctx.setStatus("Tile " + std::to_string(powerUpTileIdx) +
                           " -> PowerUp: " + reg[i].label);
             ClosePowerUpPicker();
@@ -275,8 +273,7 @@ bool EditorPopups::HandlePowerUpPickerEvent(const SDL_Event& e, Ctx& ctx) {
                         py + (int)reg.size() * (ROW_H + 2),
                         powerUpRect.w - PAD * 2, ROW_H};
     if (HitTest(noneRow, mx, my)) {
-        ctx.level.tiles[powerUpTileIdx].powerUp     = false;
-        ctx.level.tiles[powerUpTileIdx].powerUpType = "";
+        ctx.level.tiles[powerUpTileIdx].powerUp.reset();
         ctx.setStatus("Tile " + std::to_string(powerUpTileIdx) + " -> PowerUp removed");
         ClosePowerUpPicker();
         return true;
@@ -354,13 +351,13 @@ bool EditorPopups::HandleMovPlatPopupEvent(const SDL_Event& e, Ctx& ctx,
     if (HitTest(btnH, mx, my)) {
         movPlatHoriz = true;
         for (int idx : movPlatIndices)
-            ctx.level.tiles[idx].moveHoriz = true;
+            ctx.level.tiles[idx].moving->horiz = true;
         return true;
     }
     if (HitTest(btnV, mx, my)) {
         movPlatHoriz = false;
         for (int idx : movPlatIndices)
-            ctx.level.tiles[idx].moveHoriz = false;
+            ctx.level.tiles[idx].moving->horiz = false;
         return true;
     }
     ry += ROW_H + PAD;
@@ -372,8 +369,8 @@ bool EditorPopups::HandleMovPlatPopupEvent(const SDL_Event& e, Ctx& ctx,
         if (!movPlatLoop)
             movPlatTrigger = false;
         for (int idx : movPlatIndices) {
-            ctx.level.tiles[idx].moveLoop    = movPlatLoop;
-            ctx.level.tiles[idx].moveTrigger = movPlatTrigger;
+            ctx.level.tiles[idx].moving->loop    = movPlatLoop;
+            ctx.level.tiles[idx].moving->trigger = movPlatTrigger;
         }
         return true;
     }
@@ -384,7 +381,7 @@ bool EditorPopups::HandleMovPlatPopupEvent(const SDL_Event& e, Ctx& ctx,
     if (HitTest(trigRow, mx, my)) {
         movPlatTrigger = !movPlatTrigger;
         for (int idx : movPlatIndices)
-            ctx.level.tiles[idx].moveTrigger = movPlatTrigger;
+            ctx.level.tiles[idx].moving->trigger = movPlatTrigger;
         return true;
     }
 
@@ -402,17 +399,17 @@ void EditorPopups::CommitSpeedField(Ctx& ctx, std::vector<int>& movPlatIndices) 
 
     // Apply to current session tiles
     for (int idx : movPlatIndices)
-        ctx.level.tiles[idx].moveSpeed = movPlatSpeed;
+        ctx.level.tiles[idx].moving->speed = movPlatSpeed;
 
     // Also apply to all tiles in the current group (catches already-placed platforms)
     for (auto& t : ctx.level.tiles) {
-        if (!t.moving)
+        if (!t.HasMoving())
             continue;
         bool inGroup =
-            (movPlatGroupId != 0 && t.moveGroupId == movPlatGroupId) ||
+            (movPlatGroupId != 0 && t.moving->groupId == movPlatGroupId) ||
             std::any_of(movPlatIndices.begin(), movPlatIndices.end(),
                         [&](int i) { return &t == &ctx.level.tiles[i]; });
         if (inGroup)
-            t.moveSpeed = movPlatSpeed;
+            t.moving->speed = movPlatSpeed;
     }
 }

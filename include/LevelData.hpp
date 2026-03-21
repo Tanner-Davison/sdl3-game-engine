@@ -1,76 +1,106 @@
 #pragma once
 #include "Components.hpp" // for SlopeType
+#include <optional>
 #include <string>
 #include <vector>
 
-// Plain data — one entry per entity type in the level
+// ── Plain data — one entry per entity type in the level ──────────────────────
+
 struct CoinSpawn {
     float x, y;
 };
+
 struct EnemySpawn {
     float x, y;
     float speed;
-    bool  antiGravity = false; // floats in place instead of patrolling on the ground
+    bool  antiGravity = false;
 };
+
 struct PlayerSpawn {
     float x, y;
 };
-struct TileSpawn {
-    float       x, y;
-    int         w, h;
-    std::string imagePath;
-    bool prop   = false; // rendered, no collision — background decoration
-    bool ladder = false; // rendered, no solid collision — player can climb with W
-    bool      action      = false;           // rendered and collidable until the player SLASHES it,
-                                             // then stops rendering and stops blocking (e.g. a door).
-                                             // This is the one unified slash-trigger tool — replaces
-                                             // the old separate Destructible tool entirely.
-    int       actionGroup = 0;              // 0 = standalone; non-zero = group ID.
-                                             // All action tiles sharing the same non-zero group
-                                             // are triggered simultaneously when any one is slashed.
-    int       actionHits  = 1;              // number of slashes required to destroy (default 1)
-    std::string actionDestroyAnim;          // path to an animated tile JSON to play on destruction
-                                             // (empty = no death animation). The animation plays
-                                             // once at the tile's position then the entity is removed.
-    SlopeType slope           = SlopeType::None; // diagonal slope — collision rides the hypotenuse
-    float     slopeHeightFrac  = 1.0f;           // 0..1: fraction of tile height the slope rises (1.0=full diagonal)
-    int       rotation    = 0;               // clockwise degrees: 0, 90, 180, 270
-    bool      hazard      = false;           // solid tile that drains 30 HP/sec while player overlaps
-    bool        antiGravity  = false;           // floats — bobs in place, no gravity, pushable
-    // Custom hitbox — all zero means "use full tile rect" (default).
-    // When non-zero, the collider is this sub-rect relative to (x,y).
-    int hitboxOffX = 0;
-    int hitboxOffY = 0;
-    int hitboxW    = 0;  // 0 = use tile w
-    int hitboxH    = 0;  // 0 = use tile h
 
-    // Moving platform — zero moveRange means stationary (default).
-    // Tiles sharing the same non-zero moveGroupId move as one rigid unit.
-    bool  moving      = false;
-    bool  moveHoriz   = true;    // true = horizontal, false = vertical
-    float moveRange   = 96.0f;   // half-travel distance in pixels (total = range*2)
-    float moveSpeed   = 60.0f;   // pixels per second
-    int   moveGroupId = 0;       // 0 = solo; non-zero groups tiles into one platform
-    bool  moveLoop    = false;   // true = ping-pong, false = sine oscillate
-    bool  moveTrigger = false;   // true = only starts moving after player first lands on it
-    float movePhase   = 0.0f;   // starting position: 0.0=origin, 1.0=far end (fraction of range)
-    int   moveLoopDir = 1;      // starting direction: +1=right/down, -1=left/up
+// ── TileSpawn sub-structs ────────────────────────────────────────────────────
+// Each optional group holds the data for a specific tile feature.
+// When the optional is std::nullopt, that feature is inactive.
 
-    // Power-up pickup tile. When powerUp=true this tile is a pickup: the player
-    // walks into it, it is consumed, and the named power-up effect activates.
-    // powerUpType: "antigravity" (and future names). powerUpDuration: seconds.
-    bool        powerUp         = false;
-    std::string powerUpType;
-    float       powerUpDuration = 15.0f;
+struct ActionData {
+    int         group          = 0;   // 0 = standalone; non-zero groups trigger together
+    int         hitsRequired   = 1;   // total slashes to destroy
+    std::string destroyAnimPath;      // animated tile JSON for death anim (empty = none)
 };
+
+struct SlopeData {
+    SlopeType type       = SlopeType::DiagUpRight;
+    float     heightFrac = 1.0f; // 0..1: fraction of tile height the slope rises
+};
+
+struct HitboxData {
+    int offX = 0; // offset from tile top-left
+    int offY = 0;
+    int w    = 0; // 0 = use tile w
+    int h    = 0; // 0 = use tile h
+};
+
+struct MovingPlatformData {
+    bool  horiz   = true;    // true = horizontal, false = vertical
+    float range   = 96.0f;   // half-travel in pixels
+    float speed   = 60.0f;   // pixels per second
+    int   groupId = 0;       // 0 = solo; non-zero groups tiles into one platform
+    bool  loop    = false;   // true = ping-pong, false = sine oscillate
+    bool  trigger = false;   // true = waits for player landing before moving
+    float phase   = 0.0f;   // starting position: 0.0 = origin, 1.0 = far end
+    int   loopDir = 1;      // starting direction: +1 = right/down, -1 = left/up
+};
+
+struct PowerUpData {
+    std::string type;             // "antigravity", etc.
+    float       duration = 15.0f; // seconds the effect lasts
+};
+
+// ── TileSpawn ────────────────────────────────────────────────────────────────
+
+struct TileSpawn {
+    // Core fields — every tile has these
+    float       x = 0.0f, y = 0.0f;
+    int         w = 0, h = 0;
+    std::string imagePath;
+    int         rotation    = 0;     // clockwise degrees: 0, 90, 180, 270
+
+    // Simple boolean flags (mutually exclusive rules enforced by editor tools)
+    bool prop        = false; // rendered, no collision — background decoration
+    bool ladder      = false; // rendered, no solid collision — player can climb
+    bool hazard      = false; // solid tile that drains HP while player overlaps
+    bool antiGravity = false; // floats — bobs in place, no gravity, pushable
+
+    // Optional feature groups — present only when the feature is active
+    std::optional<ActionData>          action;
+    std::optional<SlopeData>           slope;
+    std::optional<HitboxData>          hitbox;
+    std::optional<MovingPlatformData>  moving;
+    std::optional<PowerUpData>         powerUp;
+
+    // ── Convenience queries ──────────────────────────────────────────────────
+    bool HasAction()   const { return action.has_value(); }
+    bool HasSlope()    const { return slope.has_value(); }
+    bool HasHitbox()   const { return hitbox.has_value(); }
+    bool HasMoving()   const { return moving.has_value(); }
+    bool HasPowerUp()  const { return powerUp.has_value(); }
+
+    SlopeType GetSlopeType() const {
+        return slope ? slope->type : SlopeType::None;
+    }
+};
+
+// ── Level-wide settings ──────────────────────────────────────────────────────
 
 enum class GravityMode { Platformer, WallRun, OpenWorld };
 
 struct Level {
     std::string             name        = "Untitled";
     std::string             background  = "game_assets/backgrounds/deepspace_scene.png";
-    std::string             bgFitMode   = "cover"; // "cover", "contain", "stretch", "tile"
-    bool                    bgRepeat    = false;    // tile the background for infinite scroll
+    std::string             bgFitMode   = "cover";
+    bool                    bgRepeat    = false;
     GravityMode             gravityMode = GravityMode::Platformer;
     PlayerSpawn             player      = {0.0f, 0.0f};
     std::vector<CoinSpawn>  coins;

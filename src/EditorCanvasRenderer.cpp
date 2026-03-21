@@ -102,7 +102,7 @@ void EditorCanvasRenderer::Render(
         // Outside MovingPlat: subtle M badge on all moving tiles
         for (int ti = 0; ti < (int)level.tiles.size(); ti++) {
             const auto& t = level.tiles[ti];
-            if (!t.moving) continue;
+            if (!t.HasMoving()) continue;
             int tsx = (int)((t.x - camera.X()) * camera.Zoom());
             int tsy = (int)((t.y - camera.Y()) * camera.Zoom());
             int tsw = (int)(t.w * camera.Zoom());
@@ -196,10 +196,10 @@ void EditorCanvasRenderer::RenderTiles(SDL_Surface* screen, int canvasW, int too
                 ? cache.GetRotated(t.imagePath, ts, t.rotation) : ts;
             if (t.prop)   SDL_SetSurfaceColorMod(draw, 120, 255, 120);
             if (t.ladder) SDL_SetSurfaceColorMod(draw, 120, 220, 255);
-            if (t.action) SDL_SetSurfaceColorMod(draw, 255, 160,  80);
+            if (t.HasAction()) SDL_SetSurfaceColorMod(draw, 255, 160,  80);
             if (t.hazard) SDL_SetSurfaceColorMod(draw, 255,  80,  80);
             SDL_BlitSurfaceScaled(draw, nullptr, screen, &dst, SDL_SCALEMODE_LINEAR);
-            if (t.prop || t.ladder || t.action || t.hazard)
+            if (t.prop || t.ladder || t.HasAction() || t.hazard)
                 SDL_SetSurfaceColorMod(draw, 255, 255, 255);
         } else {
             DrawRect(screen, dst, {80, 80, 120, 200});
@@ -207,7 +207,7 @@ void EditorCanvasRenderer::RenderTiles(SDL_Surface* screen, int canvasW, int too
 
         SDL_Color outlineCol = t.ladder   ? SDL_Color{0, 220, 220, 255}
                              : t.prop     ? SDL_Color{80, 255, 80, 255}
-                             : t.action   ? SDL_Color{255, 160, 60, 255}
+                             : t.HasAction() ? SDL_Color{255, 160, 60, 255}
                              : t.hazard   ? SDL_Color{255, 60, 60, 255}
                                           : SDL_Color{100, 180, 255, 255};
         DrawOutline(screen, dst, outlineCol);
@@ -223,10 +223,10 @@ void EditorCanvasRenderer::RenderTiles(SDL_Surface* screen, int canvasW, int too
             };
             if (t.prop)   drawBadge("P", {0, 180, 0, 210},       {255, 255, 255, 255});
             if (t.ladder) drawBadge("L", {0, 160, 180, 210},      {255, 255, 255, 255});
-            if (t.action) {
+            if (t.HasAction()) {
                 std::string ab = "A";
-                if (t.actionGroup > 0)  ab += std::to_string(t.actionGroup);
-                if (t.actionHits  > 1)  ab += "x" + std::to_string(t.actionHits);
+                if (t.action->group > 0)  ab += std::to_string(t.action->group);
+                if (t.action->hitsRequired > 1) ab += "x" + std::to_string(t.action->hitsRequired);
                 int abw = (int)ab.size() * 6 + 4;
                 DrawRect(screen, {bx, tsy + 2, abw, BH}, {200, 100, 0, 200});
                 blitBadge(badge(ab, {255, 255, 255, 255}), bx + 2, tsy + 2);
@@ -234,18 +234,18 @@ void EditorCanvasRenderer::RenderTiles(SDL_Surface* screen, int canvasW, int too
             }
             if (t.hazard)    drawBadge("H", {200, 0, 0, 220},    {255, 255, 255, 255});
             if (t.antiGravity) drawBadge("F", {0, 180, 200, 220},{255, 255, 255, 255});
-            if (t.powerUp) {
-                std::string pb  = t.powerUpType.empty() ? "PU" : t.powerUpType.substr(0, 2);
+            if (t.HasPowerUp()) {
+                std::string pb  = t.powerUp->type.empty() ? "PU" : t.powerUp->type.substr(0, 2);
                 int         pw  = (int)pb.size() * 6 + 4;
                 DrawRect(screen, {bx, tsy + 2, pw, BH}, {180, 0, 220, 220});
                 DrawOutline(screen, {bx, tsy + 2, pw, BH}, {255, 80, 255, 255});
                 blitBadge(badge(pb, {255, 255, 255, 255}), bx + 2, tsy + 2);
                 bx += pw + GAP;
             }
-            if (t.slope != SlopeType::None) {
-                std::string sb = (t.slope == SlopeType::DiagUpRight) ? "/" : "\\";
-                if (t.slopeHeightFrac < 0.99f)
-                    sb += std::to_string((int)std::round(t.slopeHeightFrac * 100)) + "%";
+            if (t.HasSlope()) {
+                std::string sb = (t.slope->type == SlopeType::DiagUpRight) ? "/" : "\\";
+                if (t.slope->heightFrac < 0.99f)
+                    sb += std::to_string((int)std::round(t.slope->heightFrac * 100)) + "%";
                 int bw = (int)sb.size() * 6 + 4;
                 DrawRect(screen, {bx, tsy + 2, bw, BH}, {160, 120, 0, 200});
                 blitBadge(badge(sb, {255, 255, 255, 255}), bx + 2, tsy + 2);
@@ -255,14 +255,14 @@ void EditorCanvasRenderer::RenderTiles(SDL_Surface* screen, int canvasW, int too
         }
 
         // ── Action tile: anim indicator + group badge ────────────────────────
-        if (t.action) {
+        if (t.HasAction()) {
             constexpr int ANIM_SZ = 16;
             int abx = tsx + tsw - ANIM_SZ - 2;
             int aby = tsy + tsh - ANIM_SZ - 2;
             if (abx > tsx + 14 + 2 && aby > tsy + 14) {
-                if (!t.actionDestroyAnim.empty()) {
+                if (!t.action->destroyAnimPath.empty()) {
                     DrawRect(screen, {abx-1, aby-1, ANIM_SZ+2, ANIM_SZ+2}, {120, 0, 200, 200});
-                    SDL_Surface* animThumb = cache.GetDestroyAnimThumb(t.actionDestroyAnim);
+                    SDL_Surface* animThumb = cache.GetDestroyAnimThumb(t.action->destroyAnimPath);
                     if (animThumb) {
                         SDL_Rect d2 = {abx, aby, ANIM_SZ, ANIM_SZ};
                         SDL_BlitSurfaceScaled(animThumb, nullptr, screen, &d2, SDL_SCALEMODE_LINEAR);
@@ -274,8 +274,8 @@ void EditorCanvasRenderer::RenderTiles(SDL_Surface* screen, int canvasW, int too
                     blitBadge(badge("+", {180, 100, 220, 200}), abx + 4, aby + 3);
                 }
                 if (activeToolId == ToolId::Action && tsw >= 40) {
-                    std::string gs  = (t.actionGroup == 0) ? "G-" : ("G" + std::to_string(t.actionGroup));
-                    SDL_Color   gc  = (t.actionGroup == 0)
+                    std::string gs  = (t.action->group == 0) ? "G-" : ("G" + std::to_string(t.action->group));
+                    SDL_Color   gc  = (t.action->group == 0)
                                     ? SDL_Color{120, 120, 140, 200}
                                     : SDL_Color{255, 220,  60, 255};
                     SDL_Surface* gb = badge(gs, gc);
@@ -296,11 +296,11 @@ void EditorCanvasRenderer::RenderTiles(SDL_Surface* screen, int canvasW, int too
         }
 
         // ── Slope line ───────────────────────────────────────────────────────
-        if (t.slope != SlopeType::None) {
-            int riseH = (int)(t.h * t.slopeHeightFrac);
+        if (t.HasSlope()) {
+            int riseH = (int)(t.h * t.slope->heightFrac);
             int highY = tsy, lowY = tsy + riseH;
             int lx0, ly0, lx1, ly1;
-            if (t.slope == SlopeType::DiagUpLeft) {
+            if (t.slope->type == SlopeType::DiagUpLeft) {
                 lx0 = tsx;      ly0 = lowY;
                 lx1 = tsx + tsw; ly1 = highY;
             } else {
@@ -348,7 +348,7 @@ void EditorCanvasRenderer::RenderMovingPlatOverlay(
 
     for (int ti = 0; ti < (int)level.tiles.size(); ti++) {
         const auto& t = level.tiles[ti];
-        if (!t.moving) continue;
+        if (!t.HasMoving()) continue;
         int tsx = (int)((t.x - camX) * zoom), tsy = (int)((t.y - camY) * zoom);
         int tsw = (int)(t.w * zoom),           tsh = (int)(t.h * zoom);
 
@@ -365,72 +365,73 @@ void EditorCanvasRenderer::RenderMovingPlatOverlay(
 
         int lineStartX = 0, lineEndX = 0, lineStartY = 0, lineEndY = 0;
 
-        if (t.moveHoriz) {
+        const auto& mv = *t.moving;
+        if (mv.horiz) {
             lineStartX = tsx;
-            int endWXSnapped = ((int)(t.x + t.moveRange) / grid) * grid;
+            int endWXSnapped = ((int)(t.x + mv.range) / grid) * grid;
             lineEndX = (int)std::round((endWXSnapped - camX) * zoom);
             DrawRect(screen, {lineStartX, cy - 1, lineEndX - lineStartX, 2}, {0,255,255,100});
         } else {
             lineStartY = tsy;
-            int endWYSnapped = ((int)(t.y + t.moveRange) / grid) * grid;
+            int endWYSnapped = ((int)(t.y + mv.range) / grid) * grid;
             lineEndY = (int)std::round((endWYSnapped - camY) * zoom);
             DrawRect(screen, {cx-1, lineStartY, 2, lineEndY-lineStartY}, {0,255,255,100});
         }
 
         // Direction arrow
-        if (t.moveHoriz) {
+        if (mv.horiz) {
             int acy = tsy + tsh / 2;
-            int dir = t.moveLoop ? t.moveLoopDir : 1;
+            int dir = mv.loop ? mv.loopDir : 1;
             int tipX  = cx + dir * (tsw / 2 + 10);
             for (int row = 0; row < 7; row++) {
                 int half = row;
                 int rx   = (dir > 0) ? tipX + row - 7 : tipX - row + 1;
                 DrawRect(screen, {rx, acy - half, 1, half * 2 + 1}, {255,220,0,220});
             }
-            if (t.moveRange > 0.0f) {
+            if (mv.range > 0.0f) {
                 DrawRectAlpha(screen, {tsx, tsy, sw, sh}, {0,200,80,60});
                 DrawOutline(screen, {tsx, tsy, sw, sh}, {0,255,100,200}, 2);
                 blitBadge(badge("S", {0,255,120,255}), tsx+2, tsy+2);
-                int endWXSnapped = ((int)(t.x + t.moveRange) / grid) * grid;
+                int endWXSnapped = ((int)(t.x + mv.range) / grid) * grid;
                 int endSX = (int)std::round((endWXSnapped - camX) * zoom);
                 DrawRectAlpha(screen, {endSX, tsy, sw, sh}, {220,60,60,60});
                 DrawOutline(screen, {endSX, tsy, sw, sh}, {255,80,80,200}, 2);
                 blitBadge(badge("E", {255,100,100,255}), endSX+2, tsy+2);
                 lineEndX = endSX;
-                int phasePx = tsx + (int)((lineEndX - tsx) * t.movePhase);
+                int phasePx = tsx + (int)((lineEndX - tsx) * mv.phase);
                 DrawRect(screen, {phasePx-1, cy-12, 2, 24}, {255,255,0,200});
-                blitBadge(badge(std::to_string((int)(t.movePhase*100))+"%",{255,255,180,255}),
+                blitBadge(badge(std::to_string((int)(mv.phase*100))+"%",{255,255,180,255}),
                           phasePx-8, cy-24);
             }
         } else {
             int acx = tsx + tsw / 2;
-            int dir = t.moveLoop ? t.moveLoopDir : 1;
+            int dir = mv.loop ? mv.loopDir : 1;
             int tipY = cy + dir * (tsh / 2 + 10);
             for (int row = 0; row < 7; row++) {
                 int half = row;
                 int ry   = (dir > 0) ? tipY + row - 7 : tipY - row + 1;
                 DrawRect(screen, {acx - half, ry, half*2+1, 1}, {255,220,0,220});
             }
-            if (t.moveRange > 0.0f) {
+            if (mv.range > 0.0f) {
                 DrawRectAlpha(screen, {tsx, tsy, sw, sh}, {0,200,80,60});
                 DrawOutline(screen, {tsx, tsy, sw, sh}, {0,255,100,200}, 2);
                 blitBadge(badge("S", {0,255,120,255}), tsx+2, tsy+2);
-                int endWYSnapped = ((int)(t.y + t.moveRange) / grid) * grid;
+                int endWYSnapped = ((int)(t.y + mv.range) / grid) * grid;
                 int endSY = (int)std::round((endWYSnapped - camY) * zoom);
                 DrawRectAlpha(screen, {tsx, endSY, sw, sh}, {220,60,60,60});
                 DrawOutline(screen, {tsx, endSY, sw, sh}, {255,80,80,200}, 2);
                 blitBadge(badge("E", {255,100,100,255}), tsx+2, endSY+2);
                 lineEndY = endSY;
-                int phasePy = tsy + (int)((lineEndY - tsy) * t.movePhase);
+                int phasePy = tsy + (int)((lineEndY - tsy) * mv.phase);
                 DrawRect(screen, {acx-12, phasePy-1, 24, 2}, {255,255,0,200});
-                blitBadge(badge(std::to_string((int)(t.movePhase*100))+"%",{255,255,180,255}),
+                blitBadge(badge(std::to_string((int)(mv.phase*100))+"%",{255,255,180,255}),
                           acx+8, phasePy-6);
             }
         }
 
         blitBadge(badge("M", {0,255,255,255}), tsx+2, tsy+2);
-        if (t.moveGroupId != 0)
-            blitBadge(badge(std::to_string(t.moveGroupId), {200,255,255,255}), tsx+12, tsy+2);
+        if (mv.groupId != 0)
+            blitBadge(badge(std::to_string(mv.groupId), {200,255,255,255}), tsx+12, tsy+2);
     }
 
     // Cursor preview of travel path before placing tiles

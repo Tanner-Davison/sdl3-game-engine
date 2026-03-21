@@ -255,8 +255,8 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                 SDL_GetMouseState(&fmx, &fmy);
                 int mx = (int)fmx, my = (int)fmy;
                 int ti = (my >= TOOLBAR_H && mx < CanvasW()) ? HitTile(mx, my) : -1;
-                if (ti >= 0 && mLevel.tiles[ti].action) {
-                    mLevel.tiles[ti].actionDestroyAnim = path;
+                if (ti >= 0 && mLevel.tiles[ti].HasAction()) {
+                    mLevel.tiles[ti].action->destroyAnimPath = path;
                     // Preload the thumbnail now so it's ready to render immediately
                     GetDestroyAnimThumb(path);
                     fs::path p(path);
@@ -346,16 +346,16 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
             mMovPlatRange = std::max(GRID * 1.0f, mMovPlatRange + e.wheel.y * GRID);
             // Update current session tiles
             for (int idx : mMovPlatIndices)
-                mLevel.tiles[idx].moveRange = mMovPlatRange;
+                mLevel.tiles[idx].moving->range = mMovPlatRange;
             // Also update the hovered tile's group (handles already-placed platforms)
             int hovTi = (my >= TOOLBAR_H && mx < CanvasW()) ? HitTile(mx, my) : -1;
-            if (hovTi >= 0 && mLevel.tiles[hovTi].moving) {
-                int grp = mLevel.tiles[hovTi].moveGroupId;
+            if (hovTi >= 0 && mLevel.tiles[hovTi].HasMoving()) {
+                int grp = mLevel.tiles[hovTi].moving->groupId;
                 for (auto& t : mLevel.tiles) {
-                    if (!t.moving)
+                    if (!t.HasMoving())
                         continue;
-                    if (grp != 0 ? (t.moveGroupId == grp) : (&t == &mLevel.tiles[hovTi]))
-                        t.moveRange = mMovPlatRange;
+                    if (grp != 0 ? (t.moving->groupId == grp) : (&t == &mLevel.tiles[hovTi]))
+                        t.moving->range = mMovPlatRange;
                 }
             }
             SetStatus("MovePlat range=" + std::to_string((int)mMovPlatRange));
@@ -391,12 +391,12 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
             SDL_GetMouseState(nullptr, &fmya);
             int mya       = (int)fmya;
             int hovAction = (mya >= TOOLBAR_H && mx < CanvasW()) ? HitTile(mx, mya) : -1;
-            if (hovAction >= 0 && mLevel.tiles[hovAction].action) {
+            if (hovAction >= 0 && mLevel.tiles[hovAction].HasAction()) {
                 mScrollAccum += e.wheel.y;
                 int steps = (int)mScrollAccum;
                 if (steps != 0) {
                     mScrollAccum -= steps;
-                    int& hits = mLevel.tiles[hovAction].actionHits;
+                    int& hits = mLevel.tiles[hovAction].action->hitsRequired;
                     hits      = std::clamp(hits + steps, 1, 99);
                     SetStatus("Action tile hits: " + std::to_string(hits));
                 }
@@ -413,35 +413,35 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
             int  hovTi = (myw >= TOOLBAR_H && mxw < CanvasW()) ? HitTile(mxw, myw) : -1;
             bool ctrl  = (SDL_GetModState() & SDL_KMOD_CTRL) != 0;
             bool shift = (SDL_GetModState() & SDL_KMOD_SHIFT) != 0;
-            if (ctrl && hovTi >= 0 && mLevel.tiles[hovTi].moving) {
+            if (ctrl && hovTi >= 0 && mLevel.tiles[hovTi].HasMoving()) {
                 // Ctrl+scroll: adjust starting phase for the tile AND its whole group
                 auto& ht       = mLevel.tiles[hovTi];
-                float newPhase = ht.movePhase + e.wheel.y * 0.05f;
+                float newPhase = ht.moving->phase + e.wheel.y * 0.05f;
                 // Wrap instead of clamp so you can scroll continuously
                 if (newPhase < 0.0f)
                     newPhase += 1.0f;
                 if (newPhase > 1.0f)
                     newPhase -= 1.0f;
-                int grp = ht.moveGroupId;
+                int grp = ht.moving->groupId;
                 for (auto& t : mLevel.tiles) {
-                    if (!t.moving)
+                    if (!t.HasMoving())
                         continue;
-                    if (grp != 0 ? (t.moveGroupId == grp) : (&t == &ht))
-                        t.movePhase = newPhase;
+                    if (grp != 0 ? (t.moving->groupId == grp) : (&t == &ht))
+                        t.moving->phase = newPhase;
                 }
                 SetStatus((grp != 0 ? "Group " + std::to_string(grp)
                                     : "Tile " + std::to_string(hovTi)) +
                           "  phase=" + std::to_string(newPhase).substr(0, 4) +
-                          "  dir=" + (ht.moveLoopDir > 0 ? "+1(right)" : "-1(left)"));
-            } else if (shift && hovTi >= 0 && mLevel.tiles[hovTi].moving) {
+                          "  dir=" + (ht.moving->loopDir > 0 ? "+1(right)" : "-1(left)"));
+            } else if (shift && hovTi >= 0 && mLevel.tiles[hovTi].HasMoving()) {
                 // Shift+scroll: flip start direction for the tile AND its whole group
                 int newDir = (e.wheel.y > 0) ? 1 : -1;
-                int grp    = mLevel.tiles[hovTi].moveGroupId;
+                int grp    = mLevel.tiles[hovTi].moving->groupId;
                 for (auto& t : mLevel.tiles) {
-                    if (!t.moving)
+                    if (!t.HasMoving())
                         continue;
-                    if (grp != 0 ? (t.moveGroupId == grp) : (&t == &mLevel.tiles[hovTi]))
-                        t.moveLoopDir = newDir;
+                    if (grp != 0 ? (t.moving->groupId == grp) : (&t == &mLevel.tiles[hovTi]))
+                        t.moving->loopDir = newDir;
                 }
                 SetStatus(
                     (grp != 0 ? "Group " + std::to_string(grp)
@@ -451,7 +451,7 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                 // Plain scroll: adjust range for current group
                 mMovPlatRange = std::max(48.0f, mMovPlatRange + (int)e.wheel.y * GRID);
                 for (int idx : mMovPlatIndices)
-                    mLevel.tiles[idx].moveRange = mMovPlatRange;
+                    mLevel.tiles[idx].moving->range = mMovPlatRange;
                 SetStatus("MovePlat range=" + std::to_string((int)mMovPlatRange) +
                           "  spd=" + std::to_string((int)mPopups.movPlatSpeed) +
                           (mPopups.movPlatLoop ? "  LOOP" : "") +
@@ -615,13 +615,13 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
         int mx = (int)e.button.x, my = (int)e.button.y;
         if (mActiveToolId == ToolId::Action && my >= TOOLBAR_H && mx < CanvasW()) {
             int ti = HitTile(mx, my);
-            if (ti >= 0 && mLevel.tiles[ti].action) {
+            if (ti >= 0 && mLevel.tiles[ti].HasAction()) {
                 // Right-click cycles through available death animations:
                 // None -> anim1 -> anim2 -> ... -> last -> None -> ...
                 // The thumbnail badge updates immediately on each click.
                 {
                     auto  manifests = ScanAnimatedTiles();
-                    auto& cur       = mLevel.tiles[ti].actionDestroyAnim;
+                    auto& cur       = mLevel.tiles[ti].action->destroyAnimPath;
                     if (manifests.empty()) {
                         cur.clear();
                         SetStatus("No death anims in animated_tiles/");
@@ -702,11 +702,11 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
             }
             // Update all tiles already in the group
             for (int idx : mMovPlatIndices) {
-                mLevel.tiles[idx].moveHoriz   = mPopups.movPlatHoriz;
-                mLevel.tiles[idx].moveRange   = mMovPlatRange;
-                mLevel.tiles[idx].moveSpeed   = mPopups.movPlatSpeed;
-                mLevel.tiles[idx].moveLoop    = mPopups.movPlatLoop;
-                mLevel.tiles[idx].moveTrigger = mPopups.movPlatTrigger;
+                mLevel.tiles[idx].moving->horiz   = mPopups.movPlatHoriz;
+                mLevel.tiles[idx].moving->range   = mMovPlatRange;
+                mLevel.tiles[idx].moving->speed   = mPopups.movPlatSpeed;
+                mLevel.tiles[idx].moving->loop    = mPopups.movPlatLoop;
+                mLevel.tiles[idx].moving->trigger = mPopups.movPlatTrigger;
             }
             SetStatus(std::string(mPopups.movPlatHoriz ? "H" : "V") +
                       "  range=" + std::to_string((int)mMovPlatRange) + "  spd=" +
@@ -720,8 +720,8 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
         if (my >= TOOLBAR_H && mx < CanvasW()) {
             int ti = HitTile(mx, my);
             if (ti >= 0) {
-                if (mActiveToolId == ToolId::Action && mLevel.tiles[ti].action) {
-                    int& grp = mLevel.tiles[ti].actionGroup;
+                if (mActiveToolId == ToolId::Action && mLevel.tiles[ti].HasAction()) {
+                    int& grp = mLevel.tiles[ti].action->group;
                     grp      = (grp + 1) % 10;
                     SetStatus("Tile " + std::to_string(ti) + " group -> " +
                               (grp == 0 ? "standalone" : std::to_string(grp)));
@@ -767,7 +767,7 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                     if (HitTest(cell, mx, my)) {
                         const auto& entry = mPopups.animPickerEntries[i];
                         if (mPopups.animPickerTile < (int)mLevel.tiles.size()) {
-                            mLevel.tiles[mPopups.animPickerTile].actionDestroyAnim =
+                            mLevel.tiles[mPopups.animPickerTile].action->destroyAnimPath =
                                 entry.path;
                             if (!entry.path.empty())
                                 GetDestroyAnimThumb(entry.path);
@@ -904,21 +904,21 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                         lblTool->CreateSurface("MovingPlat");
                         int maxUsed = 0;
                         for (const auto& ts : mLevel.tiles)
-                            if (ts.moveGroupId > maxUsed)
-                                maxUsed = ts.moveGroupId;
+                            if (ts.HasMoving() && ts.moving->groupId > maxUsed)
+                                maxUsed = ts.moving->groupId;
                         mMovPlatNextGroupId = maxUsed + 1;
                         mMovPlatCurGroupId     = mMovPlatNextGroupId++;
                         mPopups.movPlatGroupId = mMovPlatCurGroupId;
                         mMovPlatIndices.clear();
                         for (int i = 0; i < (int)mLevel.tiles.size(); i++) {
-                            if (!mLevel.tiles[i].moving)
+                            if (!mLevel.tiles[i].HasMoving())
                                 continue;
-                            const auto& first         = mLevel.tiles[i];
-                            mPopups.movPlatHoriz      = first.moveHoriz;
-                            mMovPlatRange              = first.moveRange;
-                            mPopups.movPlatSpeed      = first.moveSpeed;
-                            mPopups.movPlatLoop       = first.moveLoop;
-                            mPopups.movPlatTrigger    = first.moveTrigger;
+                            const auto& mp            = *mLevel.tiles[i].moving;
+                            mPopups.movPlatHoriz      = mp.horiz;
+                            mMovPlatRange              = mp.range;
+                            mPopups.movPlatSpeed      = mp.speed;
+                            mPopups.movPlatLoop       = mp.loop;
+                            mPopups.movPlatTrigger    = mp.trigger;
                             break;
                         }
                         mPopups.movPlatOpen       = true;
@@ -1167,16 +1167,16 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                 }
                 int ti = HitTile(mx, my);
                 if (ti >= 0) {
-                    if (mLevel.tiles[ti].action) {
+                    if (mLevel.tiles[ti].HasAction()) {
                         // Tile is already an action tile — open the anim picker
                         OpenAnimPicker(ti);
                         SetStatus("Tile " + std::to_string(ti) + ": choose death animation");
                     } else {
                         // Not an action tile yet — make it one
-                        mLevel.tiles[ti].action = true;
+                        mLevel.tiles[ti].action = ActionData{};
                         mLevel.tiles[ti].prop   = false;
                         mLevel.tiles[ti].ladder = false;
-                        mLevel.tiles[ti].slope  = SlopeType::None;
+                        mLevel.tiles[ti].slope.reset();
                         SetStatus("Tile " + std::to_string(ti) +
                                   " → action  (click again to assign death anim)");
                     }
@@ -1214,27 +1214,28 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                     auto& t = mLevel.tiles[ti];
                     // If the tile is already moving but from a *different* session group,
                     // adopt its group so the speed popup edits the right group.
-                    if (t.moving &&
+                    if (t.HasMoving() &&
                         std::find(mMovPlatIndices.begin(), mMovPlatIndices.end(), ti) ==
                             mMovPlatIndices.end()) {
                         // Clicking an existing platform from a previous session: adopt its
                         // group
+                        const auto& mp = *t.moving;
                         mMovPlatCurGroupId =
-                            (t.moveGroupId != 0) ? t.moveGroupId : mMovPlatNextGroupId++;
+                            (mp.groupId != 0) ? mp.groupId : mMovPlatNextGroupId++;
                         mPopups.movPlatGroupId = mMovPlatCurGroupId;
-                        mPopups.movPlatHoriz    = t.moveHoriz;
-                        mMovPlatRange           = t.moveRange;
-                        mPopups.movPlatSpeed    = t.moveSpeed;
-                        mPopups.movPlatLoop     = t.moveLoop;
-                        mPopups.movPlatTrigger  = t.moveTrigger;
+                        mPopups.movPlatHoriz    = mp.horiz;
+                        mMovPlatRange           = mp.range;
+                        mPopups.movPlatSpeed    = mp.speed;
+                        mPopups.movPlatLoop     = mp.loop;
+                        mPopups.movPlatTrigger  = mp.trigger;
                         mPopups.movPlatSpeedStr = std::to_string((int)mPopups.movPlatSpeed);
                         // Collect all tiles in that group into mMovPlatIndices
                         mMovPlatIndices.clear();
                         for (int i = 0; i < (int)mLevel.tiles.size(); i++) {
-                            if (!mLevel.tiles[i].moving)
+                            if (!mLevel.tiles[i].HasMoving())
                                 continue;
-                            bool inGrp = (t.moveGroupId != 0)
-                                             ? (mLevel.tiles[i].moveGroupId == t.moveGroupId)
+                            bool inGrp = (mp.groupId != 0)
+                                             ? (mLevel.tiles[i].moving->groupId == mp.groupId)
                                              : (i == ti);
                             if (inGrp)
                                 mMovPlatIndices.push_back(i);
@@ -1249,28 +1250,27 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
                     auto it = std::find(mMovPlatIndices.begin(), mMovPlatIndices.end(), ti);
                     if (it != mMovPlatIndices.end()) {
                         mMovPlatIndices.erase(it);
-                        t.moving      = false;
-                        t.moveGroupId = 0;
+                        t.moving.reset();
                         SetStatus("Tile " + std::to_string(ti) +
                                   " removed from platform group " +
                                   std::to_string(mMovPlatCurGroupId));
                     } else {
                         // Add to current group
                         mMovPlatIndices.push_back(ti);
-                        t.moving      = true;
-                        t.moveHoriz   = mPopups.movPlatHoriz;
-                        t.moveRange   = mMovPlatRange;
-                        t.moveSpeed   = mPopups.movPlatSpeed;
-                        t.moveLoop    = mPopups.movPlatLoop;
-                        t.moveTrigger = mPopups.movPlatTrigger;
-                        t.movePhase   = 0.0f; // set per-tile via Ctrl+scroll in editor
-                        t.moveLoopDir = 1;    // set per-tile via Shift+scroll in editor
-                        t.moveGroupId =
+                        t.moving = MovingPlatformData{};
+                        t.moving->horiz   = mPopups.movPlatHoriz;
+                        t.moving->range   = mMovPlatRange;
+                        t.moving->speed   = mPopups.movPlatSpeed;
+                        t.moving->loop    = mPopups.movPlatLoop;
+                        t.moving->trigger = mPopups.movPlatTrigger;
+                        t.moving->phase   = 0.0f; // set per-tile via Ctrl+scroll in editor
+                        t.moving->loopDir = 1;    // set per-tile via Shift+scroll in editor
+                        t.moving->groupId =
                             (mMovPlatIndices.size() > 1) ? mMovPlatCurGroupId : 0;
                         // Re-apply group id to all tiles in group
                         if (mMovPlatIndices.size() > 1) {
                             for (int idx : mMovPlatIndices)
-                                mLevel.tiles[idx].moveGroupId = mMovPlatCurGroupId;
+                                mLevel.tiles[idx].moving->groupId = mMovPlatCurGroupId;
                         }
                         SetStatus("Tile " + std::to_string(ti) +
                                   " added to platform group " +
@@ -1348,7 +1348,7 @@ bool LevelEditorScene::HandleEvent(SDL_Event& e) {
         // so Render can show the "drop here" highlight.
         if (mDropActive && mActiveToolId == ToolId::Action) {
             int ti = (my >= TOOLBAR_H && mx < CanvasW()) ? HitTile(mx, my) : -1;
-            mActionAnimDropHover = (ti >= 0 && mLevel.tiles[ti].action) ? ti : -1;
+            mActionAnimDropHover = (ti >= 0 && mLevel.tiles[ti].HasAction()) ? ti : -1;
         } else {
             mActionAnimDropHover = -1;
         }

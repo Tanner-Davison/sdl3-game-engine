@@ -34,8 +34,8 @@ class HitboxTool final : public EditorTool {
             mDragging     = true;
             mHandle       = mHoverHdl;
             mDragX        = mx; mDragY = my;
-            mOrigOffX     = t.hitboxOffX; mOrigOffY = t.hitboxOffY;
-            mOrigW        = t.hitboxW;    mOrigH    = t.hitboxH;
+            mOrigOffX     = t.hitbox->offX; mOrigOffY = t.hitbox->offY;
+            mOrigW        = t.hitbox->w;    mOrigH    = t.hitbox->h;
             return ToolResult::Consumed;
         }
         // Priority 2: keep current tile if click is inside its visual bounds
@@ -53,9 +53,8 @@ class HitboxTool final : public EditorTool {
             if (ti >= 0) {
                 mTileIdx = ti;
                 auto& t  = ctx.level.tiles[ti];
-                if (t.hitboxW == 0 && t.hitboxH == 0) {
-                    t.hitboxOffX = 0; t.hitboxOffY = 0;
-                    t.hitboxW = t.w; t.hitboxH = t.h;
+                if (!t.HasHitbox()) {
+                    t.hitbox = HitboxData{0, 0, t.w, t.h};
                 }
                 ctx.SetStatus("Hitbox: tile " + std::to_string(ti) + "  drag edges to adjust");
             } else {
@@ -74,56 +73,56 @@ class HitboxTool final : public EditorTool {
             switch (mHandle) {
                 case Handle::Left: {
                     int nOff = std::min(mOrigOffX + dx, mOrigOffX + mOrigW - MIN_SIDE);
-                    t.hitboxW = std::max(MIN_SIDE, mOrigW - (nOff - mOrigOffX));
-                    t.hitboxOffX = nOff; break;
+                    t.hitbox->w = std::max(MIN_SIDE, mOrigW - (nOff - mOrigOffX));
+                    t.hitbox->offX = nOff; break;
                 }
                 case Handle::Right:
-                    t.hitboxW = std::clamp(mOrigW + dx, MIN_SIDE, t.w - t.hitboxOffX); break;
+                    t.hitbox->w = std::clamp(mOrigW + dx, MIN_SIDE, t.w - t.hitbox->offX); break;
                 case Handle::Top: {
                     int nOff = std::min(mOrigOffY + dy, mOrigOffY + mOrigH - MIN_SIDE);
-                    t.hitboxH = std::max(MIN_SIDE, mOrigH - (nOff - mOrigOffY));
-                    t.hitboxOffY = nOff; break;
+                    t.hitbox->h = std::max(MIN_SIDE, mOrigH - (nOff - mOrigOffY));
+                    t.hitbox->offY = nOff; break;
                 }
                 case Handle::Bottom:
-                    t.hitboxH = std::clamp(mOrigH + dy, MIN_SIDE, t.h - t.hitboxOffY); break;
+                    t.hitbox->h = std::clamp(mOrigH + dy, MIN_SIDE, t.h - t.hitbox->offY); break;
                 case Handle::TopLeft: {
                     int nox = std::min(mOrigOffX + dx, mOrigOffX + mOrigW - MIN_SIDE);
                     int noy = std::min(mOrigOffY + dy, mOrigOffY + mOrigH - MIN_SIDE);
-                    t.hitboxW = std::max(MIN_SIDE, mOrigW - (nox - mOrigOffX));
-                    t.hitboxH = std::max(MIN_SIDE, mOrigH - (noy - mOrigOffY));
-                    t.hitboxOffX = nox; t.hitboxOffY = noy; break;
+                    t.hitbox->w = std::max(MIN_SIDE, mOrigW - (nox - mOrigOffX));
+                    t.hitbox->h = std::max(MIN_SIDE, mOrigH - (noy - mOrigOffY));
+                    t.hitbox->offX = nox; t.hitbox->offY = noy; break;
                 }
                 case Handle::TopRight: {
                     int noy = std::min(mOrigOffY + dy, mOrigOffY + mOrigH - MIN_SIDE);
-                    t.hitboxW = std::max(MIN_SIDE, mOrigW + dx);
-                    t.hitboxH = std::max(MIN_SIDE, mOrigH - (noy - mOrigOffY));
-                    t.hitboxOffY = noy; break;
+                    t.hitbox->w = std::max(MIN_SIDE, mOrigW + dx);
+                    t.hitbox->h = std::max(MIN_SIDE, mOrigH - (noy - mOrigOffY));
+                    t.hitbox->offY = noy; break;
                 }
                 case Handle::BotLeft: {
                     int nox = std::min(mOrigOffX + dx, mOrigOffX + mOrigW - MIN_SIDE);
-                    t.hitboxW = std::max(MIN_SIDE, mOrigW - (nox - mOrigOffX));
-                    t.hitboxH = std::max(MIN_SIDE, mOrigH + dy);
-                    t.hitboxOffX = nox; break;
+                    t.hitbox->w = std::max(MIN_SIDE, mOrigW - (nox - mOrigOffX));
+                    t.hitbox->h = std::max(MIN_SIDE, mOrigH + dy);
+                    t.hitbox->offX = nox; break;
                 }
                 case Handle::BotRight:
-                    t.hitboxW = std::max(MIN_SIDE, mOrigW + dx);
-                    t.hitboxH = std::max(MIN_SIDE, mOrigH + dy); break;
+                    t.hitbox->w = std::max(MIN_SIDE, mOrigW + dx);
+                    t.hitbox->h = std::max(MIN_SIDE, mOrigH + dy); break;
                 default: break;
             }
-            t.hitboxOffX = std::max(0, std::min(t.hitboxOffX, t.w - MIN_SIDE));
-            t.hitboxOffY = std::max(0, std::min(t.hitboxOffY, t.h - MIN_SIDE));
-            ctx.SetStatus("Hitbox: off(" + std::to_string(t.hitboxOffX) + "," +
-                          std::to_string(t.hitboxOffY) + ") size(" +
-                          std::to_string(t.hitboxW) + "x" + std::to_string(t.hitboxH) + ")");
+            t.hitbox->offX = std::max(0, std::min(t.hitbox->offX, t.w - MIN_SIDE));
+            t.hitbox->offY = std::max(0, std::min(t.hitbox->offY, t.h - MIN_SIDE));
+            ctx.SetStatus("Hitbox: off(" + std::to_string(t.hitbox->offX) + "," +
+                          std::to_string(t.hitbox->offY) + ") size(" +
+                          std::to_string(t.hitbox->w) + "x" + std::to_string(t.hitbox->h) + ")");
             return ToolResult::Consumed;
         }
         // Hover detection
         if (mTileIdx >= 0 && !mDragging && mTileIdx < static_cast<int>(ctx.level.tiles.size())) {
             mHoverHdl = Handle::None;
             const auto& t = ctx.level.tiles[mTileIdx];
-            auto [htsx, htsy] = ctx.camera.WorldToScreen(t.x + t.hitboxOffX, t.y + t.hitboxOffY);
-            int hw = static_cast<int>(t.hitboxW * ctx.Zoom());
-            int hh = static_cast<int>(t.hitboxH * ctx.Zoom());
+            auto [htsx, htsy] = ctx.camera.WorldToScreen(t.x + t.hitbox->offX, t.y + t.hitbox->offY);
+            int hw = static_cast<int>(t.hitbox->w * ctx.Zoom());
+            int hh = static_cast<int>(t.hitbox->h * ctx.Zoom());
             constexpr int H = 10;
             bool nL = (mx >= htsx - H && mx <= htsx + H);
             bool nR = (mx >= htsx + hw - H && mx <= htsx + hw + H);
@@ -150,9 +149,9 @@ class HitboxTool final : public EditorTool {
             mHandle   = Handle::None;
             if (mTileIdx >= 0 && mTileIdx < static_cast<int>(ctx.level.tiles.size())) {
                 auto& t = ctx.level.tiles[mTileIdx];
-                ctx.SetStatus("Hitbox: off(" + std::to_string(t.hitboxOffX) + "," +
-                              std::to_string(t.hitboxOffY) + ") size(" +
-                              std::to_string(t.hitboxW) + "x" + std::to_string(t.hitboxH) + ")");
+                ctx.SetStatus("Hitbox: off(" + std::to_string(t.hitbox->offX) + "," +
+                              std::to_string(t.hitbox->offY) + ") size(" +
+                              std::to_string(t.hitbox->w) + "x" + std::to_string(t.hitbox->h) + ")");
             }
             return ToolResult::Consumed;
         }
@@ -164,10 +163,10 @@ class HitboxTool final : public EditorTool {
         const auto& t = ctx.level.tiles[mTileIdx];
         float camX = ctx.CamX(), camY = ctx.CamY(), zoom = ctx.Zoom();
 
-        int hx = static_cast<int>((t.x - camX + t.hitboxOffX) * zoom);
-        int hy = static_cast<int>((t.y - camY + t.hitboxOffY) * zoom);
-        int hw = static_cast<int>(t.hitboxW * zoom);
-        int hh = static_cast<int>(t.hitboxH * zoom);
+        int hx = static_cast<int>((t.x - camX + t.hitbox->offX) * zoom);
+        int hy = static_cast<int>((t.y - camY + t.hitbox->offY) * zoom);
+        int hw = static_cast<int>(t.hitbox->w * zoom);
+        int hh = static_cast<int>(t.hitbox->h * zoom);
 
         EditorToolContext::DrawRect(screen, {hx, hy, hw, hh}, {80, 160, 255, 40});
         EditorToolContext::DrawOutline(screen, {hx, hy, hw, hh}, {80, 180, 255, 255}, 2);
@@ -193,7 +192,7 @@ class HitboxTool final : public EditorTool {
 
         // Info label
         std::string info = "HB: " + std::to_string(hw) + "x" + std::to_string(hh) + " @(" +
-                           std::to_string(t.hitboxOffX) + "," + std::to_string(t.hitboxOffY) + ")";
+                           std::to_string(t.hitbox->offX) + "," + std::to_string(t.hitbox->offY) + ")";
         EditorToolContext::DrawRect(screen, {hx, hy - 16, static_cast<int>(info.size()) * 7, 14}, {10, 20, 50, 200});
         Text infoT(info, SDL_Color{180, 220, 255, 255}, hx + 2, hy - 15, 10);
         infoT.RenderToSurface(screen);
