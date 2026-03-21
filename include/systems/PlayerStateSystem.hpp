@@ -28,15 +28,17 @@ inline void PlayerStateSystem(entt::registry& reg) {
                      const InvincibilityTimer& inv) {
         // Resolve per-character collider baseline — falls back to frost-knight
         // constants when the component is absent (sandbox / no-profile mode).
+        static const PlayerBaseCollider kDefaultBase{};
         const PlayerBaseCollider* base = reg.try_get<PlayerBaseCollider>(entity);
-        const int standW    = base ? base->standW    : PLAYER_STAND_WIDTH;
-        const int standH    = base ? base->standH    : PLAYER_STAND_HEIGHT;
-        const int standRoffX = base ? base->standRoffX : PLAYER_STAND_ROFF_X;
-        const int standRoffY = base ? base->standRoffY : PLAYER_STAND_ROFF_Y;
-        const int duckW     = base ? base->duckW     : PLAYER_DUCK_WIDTH;
-        const int duckH     = base ? base->duckH     : PLAYER_DUCK_HEIGHT;
-        const int duckRoffX  = base ? base->duckRoffX  : PLAYER_DUCK_ROFF_X;
-        const int duckRoffY  = base ? base->duckRoffY  : PLAYER_DUCK_ROFF_Y;
+        if (!base) base = &kDefaultBase;
+        const int standW     = base->standW;
+        const int standH     = base->standH;
+        const int standRoffX = base->standRoffX;
+        const int standRoffY = base->standRoffY;
+        const int duckW      = base->duckW;
+        const int duckH      = base->duckH;
+        const int duckRoffX  = base->duckRoffX;
+        const int duckRoffY  = base->duckRoffY;
         // ── Attack state: start or continue slash ──────────────────────────
         // Attack ALWAYS takes priority over hurt/invincibility visuals.
         // Rules:
@@ -134,9 +136,15 @@ inline void PlayerStateSystem(entt::registry& reg) {
             }
         }
 
-        // While on a ladder, force idle — skip all airborne checks.
+        // Crouch (Ctrl) takes priority over everything except attack.
+        // This ensures the crouch animation always plays when Ctrl is held,
+        // regardless of airborne state, invincibility, or other conditions.
         const ClimbState* climb = reg.try_get<ClimbState>(entity);
-        if (climb && (climb->climbing || climb->atTop)) {
+        if (canDuck && g.isCrouching && !(climb && (climb->climbing || climb->atTop))) {
+            frames  = &set.duck;
+            fps     = resolveFps(set.duckFps, 12.0f);
+            id      = AnimationID::DUCK;
+        } else if (climb && (climb->climbing || climb->atTop)) {
             frames  = &set.idle;
             fps     = resolveFps(set.idleFps, 12.0f);
             id      = AnimationID::IDLE;
@@ -145,29 +153,13 @@ inline void PlayerStateSystem(entt::registry& reg) {
                    && !(anim.currentAnim == AnimationID::HURT
                         && !anim.looping
                         && anim.currentFrame >= anim.totalFrames - 1)) {
-            // Show hurt anim during invincibility, but only if:
-            //   - not mid-slash (attack takes priority), AND
-            //   - the hurt anim hasn't already finished playing.
-            // Once the hurt anim reaches its last frame it is done — let normal
-            // animation (idle/walk/jump) resume even while still invincible.
-            // This prevents the player from being frozen on the last hurt frame
-            // for the entire 1.5s invincibility window between hits.
             frames  = &set.hurt;
             fps     = resolveFps(set.hurtFps, 12.0f);
             looping = false;
             id      = AnimationID::HURT;
         } else if (!openWorld && !g.active) {
-            // Gravity is suspended — check if it's due to an anti-gravity power-up.
-            // If so, play the fall (FRONT) animation so the player looks like they're
-            // floating, not standing still.  Fall back to idle if no front frames exist.
             const ActivePowerUps* aps = reg.try_get<ActivePowerUps>(entity);
             if (aps && aps->has(PowerUpType::AntiGravity)) {
-                // Use FRONT (fall) anim while floating if the character has one.
-                // IMPORTANT: id must match the frames/sheet we assign — if the
-                // character has no front frames we fall back to IDLE and set
-                // id=IDLE so the sheet lookup below uses idleSheet, not frontSheet.
-                // Mismatching id=FRONT with frames=idle would pull in the frost
-                // knight's frontSheet and corrupt the custom character's render.
                 if (!set.front.empty()) {
                     frames = &set.front;
                     fps    = resolveFps(set.frontFps, 6.0f);
@@ -175,22 +167,37 @@ inline void PlayerStateSystem(entt::registry& reg) {
                 } else {
                     frames = &set.idle;
                     fps    = resolveFps(set.idleFps, 12.0f);
-                    id     = AnimationID::IDLE; // must be IDLE so idleSheet is used below
+                    id     = AnimationID::IDLE;
                 }
             } else {
-                // Gravity disabled for another reason — default to idle
                 frames = &set.idle;
                 fps    = resolveFps(set.idleFps, 12.0f);
                 id     = AnimationID::IDLE;
             }
-        } else if (canJump && !openWorld && g.active && !g.isGrounded) {
-            frames = &set.jump;
-            fps    = resolveFps(set.jumpFps, 4.0f);
-            id     = AnimationID::JUMP;
-        } else if (canDuck && !openWorld && g.isCrouching) {
-            frames = &set.duck;
-            fps    = resolveFps(set.duckFps, 12.0f);
-            id     = AnimationID::DUCK;
+        } else if (!openWorld && g.active && !g.isGrounded) {
+            // Airborne: play jump while rising / jump anim still playing,
+            // then switch to fall once descending or jump anim finished.
+            bool rising = g.velocity < 0.0f;
+            bool jumpAnimDone = (anim.currentAnim == AnimationID::JUMP
+                                 && anim.currentFrame >= anim.totalFrames - 1);
+            bool wantFall = !rising || jumpAnimDone;
+
+            if (wantFall && !set.front.empty()) {
+                frames  = &set.front;
+                fps     = resolveFps(set.frontFps, 6.0f);
+                looping = true;
+                id      = AnimationID::FRONT;
+            } else if (canJump) {
+                frames  = &set.jump;
+                fps     = resolveFps(set.jumpFps, 4.0f);
+                looping = false;
+                id      = AnimationID::JUMP;
+            } else {
+                // No jump or fall frames — hold idle
+                frames = &set.idle;
+                fps    = resolveFps(set.idleFps, 12.0f);
+                id     = AnimationID::IDLE;
+            }
         } else if (canWalk && moving) {
             frames = &set.walk;
             fps    = resolveFps(set.walkFps, 24.0f);
@@ -203,12 +210,14 @@ inline void PlayerStateSystem(entt::registry& reg) {
         }
 
         // ── Collider enforcement — runs every frame, before any early-out ─────
-        // Must be here so wall transitions (which reset col to standing dims)
-        // get corrected even when the animation ID hasn't changed.
-        bool ducking = (id == AnimationID::DUCK);
+        // Resolves the correct collider dimensions for the current animation.
+        // Per-animation hitboxes set in the character creator override the
+        // standing collider; animations without a custom hitbox fall back to
+        // stand dims. This runs every frame so wall transitions (which reset
+        // col to standing dims) get corrected even when the anim hasn't changed.
         {
-            int wantW = ducking ? duckW : standW;
-            int wantH = ducking ? duckH : standH;
+            int wantW, wantH, wantRoffX, wantRoffY;
+            base->Resolve(id, wantW, wantH, wantRoffX, wantRoffY);
 
             if (col.w != wantW || col.h != wantH) {
                 switch (g.direction) {
@@ -224,12 +233,12 @@ inline void PlayerStateSystem(entt::registry& reg) {
                 }
                 col.w = wantW;
                 col.h = wantH;
+            }
 
-                if (g.direction == GravityDir::DOWN) {
-                    if (auto* roff = reg.try_get<RenderOffset>(entity)) {
-                        roff->x = ducking ? duckRoffX : standRoffX;
-                        roff->y = ducking ? duckRoffY : standRoffY;
-                    }
+            if (g.direction == GravityDir::DOWN) {
+                if (auto* roff = reg.try_get<RenderOffset>(entity)) {
+                    roff->x = wantRoffX;
+                    roff->y = wantRoffY;
                 }
             }
         }

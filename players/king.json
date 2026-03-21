@@ -1,14 +1,14 @@
 {
-    "name": "king",
+    "name": "KING",
     "slots": [
         {
             "folderPath": "game_assets/char_sprites/king/Idle",
             "fps": 0.0,
             "hitbox": {
-                "h": 106,
-                "w": 52,
+                "h": 103,
+                "w": 55,
                 "x": 67,
-                "y": 42
+                "y": 43
             },
             "slot": 0
         },
@@ -16,10 +16,10 @@
             "folderPath": "game_assets/char_sprites/king/Walk",
             "fps": 32.0,
             "hitbox": {
-                "h": 97,
-                "w": 45,
-                "x": 72,
-                "y": 52
+                "h": 103,
+                "w": 55,
+                "x": 68,
+                "y": 43
             },
             "slot": 1
         },
@@ -27,32 +27,32 @@
             "folderPath": "game_assets/char_sprites/king/Crouch",
             "fps": 0.0,
             "hitbox": {
-                "h": 93,
-                "w": 79,
-                "x": 44,
-                "y": 54
+                "h": 90,
+                "w": 113,
+                "x": 10,
+                "y": 57
             },
             "slot": 2
         },
         {
             "folderPath": "game_assets/char_sprites/king/Jump",
-            "fps": 0.0,
+            "fps": 10.0,
             "hitbox": {
-                "h": 95,
-                "w": 45,
-                "x": 72,
-                "y": 54
+                "h": 103,
+                "w": 62,
+                "x": 60,
+                "y": 41
             },
             "slot": 3
         },
         {
             "folderPath": "game_assets/char_sprites/king/Fall",
-            "fps": 0.0,
+            "fps": 10.0,
             "hitbox": {
-                "h": 110,
+                "h": 103,
                 "w": 63,
                 "x": 60,
-                "y": 33
+                "y": 40
             },
             "slot": 4
         },
@@ -60,10 +60,10 @@
             "folderPath": "game_assets/char_sprites/king/Slash",
             "fps": 40.0,
             "hitbox": {
-                "h": 102,
-                "w": 89,
+                "h": 103,
+                "w": 111,
                 "x": 62,
-                "y": 46
+                "y": 45
             },
             "slot": 5
         },
@@ -71,10 +71,10 @@
             "folderPath": "game_assets/char_sprites/king/Hurt",
             "fps": 0.0,
             "hitbox": {
-                "h": 104,
-                "w": 55,
-                "x": 65,
-                "y": 43
+                "h": 103,
+                "w": 58,
+                "x": 62,
+                "y": 44
             },
             "slot": 6
         },
@@ -82,10 +82,10 @@
             "folderPath": "game_assets/char_sprites/king/Death",
             "fps": 0.0,
             "hitbox": {
-                "h": 100,
-                "w": 80,
-                "x": 51,
-                "y": 51
+                "h": 72,
+                "w": 118,
+                "x": 13,
+                "y": 79
             },
             "slot": 7
         }

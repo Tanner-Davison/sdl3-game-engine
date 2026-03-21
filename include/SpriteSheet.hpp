@@ -111,8 +111,13 @@ class SpriteSheet {
     /// (e.g. PlayerCreatorScene preview) can still access it via GetSurface().
     /// Call FreeSurface() explicitly once you no longer need CPU-side access.
     SDL_Texture* CreateTexture(SDL_Renderer* renderer) {
-        if (!texture && surface)
+        if (!texture && surface) {
             texture = SDL_CreateTextureFromSurface(renderer, surface);
+            // Use nearest-neighbor scaling so pixel art stays crisp
+            // instead of getting blurred by the default linear filter.
+            if (texture)
+                SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_PIXELART);
+        }
         return texture;
     }
 
@@ -126,9 +131,16 @@ class SpriteSheet {
     /// Returns the GPU texture, or nullptr if CreateTexture() hasn't been called.
     SDL_Texture* GetTexture() const { return texture; }
 
+    /// Intended render dimensions (set when targetW/targetH were provided to
+    /// the constructor). 0 = use native frame size (no override).
+    int RenderW() const { return mRenderW; }
+    int RenderH() const { return mRenderH; }
+
   private:
     SDL_Surface*                    surface  = nullptr; ///< The loaded sprite sheet surface.
     SDL_Texture*                    texture  = nullptr; ///< GPU texture built from surface.
+    int                             mRenderW = 0;       ///< Intended render width (0 = native).
+    int                             mRenderH = 0;       ///< Intended render height (0 = native).
     std::unordered_map<std::string, SDL_Rect> frames;    ///< Named frame rectangles parsed from the coord file.
 
     /// Detects format and dispatches to the appropriate loader.

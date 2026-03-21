@@ -31,6 +31,8 @@ SDL_Surface* EditorSurfaceCache::MakeThumb(SDL_Surface* src, int w, int h) {
     SDL_SetSurfaceBlendMode(src, SDL_BLENDMODE_NONE);
     SDL_Rect sr = {0, 0, src->w, src->h};
     SDL_Rect dr = {0, 0, w, h};
+    // Thumbnails are downscaled — use LINEAR for smooth minification.
+    // PIXELART/NEAREST drops entire pixel rows when shrinking, looking jagged.
     SDL_BlitSurfaceScaled(src, &sr, t, &dr, SDL_SCALEMODE_LINEAR);
     SDL_SetSurfaceBlendMode(src, srcMode);
     SDL_SetSurfaceBlendMode(t, SDL_BLENDMODE_BLEND);

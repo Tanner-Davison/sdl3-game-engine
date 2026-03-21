@@ -301,7 +301,9 @@ void EditorPalette::SeedAnimatedTile(const std::string& path, int w, int h) {
     SDL_Surface* scaled = SDL_CreateSurface(w, h, SDL_PIXELFORMAT_ARGB8888);
     if (scaled) {
         SDL_SetSurfaceBlendMode(firstFrame, SDL_BLENDMODE_NONE);
-        SDL_BlitSurfaceScaled(firstFrame, nullptr, scaled, nullptr, SDL_SCALEMODE_LINEAR);
+        SDL_ScaleMode sm = (w < firstFrame->w || h < firstFrame->h)
+                         ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_PIXELART;
+        SDL_BlitSurfaceScaled(firstFrame, nullptr, scaled, nullptr, sm);
         SDL_SetSurfaceBlendMode(scaled, SDL_BLENDMODE_BLEND);
     }
     SDL_DestroySurface(firstFrame);
@@ -326,7 +328,9 @@ void EditorPalette::SeedStaticTile(const std::string& path, int w, int h) {
         SDL_Surface* scaled = SDL_CreateSurface(w, h, SDL_PIXELFORMAT_ARGB8888);
         if (scaled) {
             SDL_SetSurfaceBlendMode(conv, SDL_BLENDMODE_NONE);
-            SDL_BlitSurfaceScaled(conv, nullptr, scaled, nullptr, SDL_SCALEMODE_LINEAR);
+            SDL_ScaleMode sm = (w < conv->w || h < conv->h)
+                             ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_PIXELART;
+            SDL_BlitSurfaceScaled(conv, nullptr, scaled, nullptr, sm);
             SDL_SetSurfaceBlendMode(scaled, SDL_BLENDMODE_BLEND);
             SDL_DestroySurface(conv);
             result = scaled;

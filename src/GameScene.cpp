@@ -44,27 +44,24 @@ static SDL_Texture* LoadScaledTexture(
     if (!conv)
         return nullptr;
 
-    SDL_Surface* scaled = SDL_CreateSurface(tw, th, SDL_PIXELFORMAT_ARGB8888);
-    if (!scaled) {
-        SDL_DestroySurface(conv);
-        return nullptr;
-    }
+    SDL_SetSurfaceBlendMode(conv, SDL_BLENDMODE_BLEND);
 
-    SDL_SetSurfaceBlendMode(conv, SDL_BLENDMODE_NONE);
-    SDL_BlitSurfaceScaled(conv, nullptr, scaled, nullptr, SDL_SCALEMODE_LINEAR);
-    SDL_DestroySurface(conv);
-    SDL_SetSurfaceBlendMode(scaled, SDL_BLENDMODE_BLEND);
-
+    // Apply rotation on the CPU (must happen before GPU upload).
+    SDL_Surface* final = conv;
     if (rotation != 0) {
-        SDL_Surface* rot = RotateSurfaceDeg(scaled, rotation);
+        SDL_Surface* rot = RotateSurfaceDeg(conv, rotation);
         if (rot) {
-            SDL_DestroySurface(scaled);
-            scaled = rot;
+            SDL_DestroySurface(conv);
+            final = rot;
         }
     }
 
-    SDL_Texture* tex = SDL_CreateTextureFromSurface(ren, scaled);
-    SDL_DestroySurface(scaled);
+    // Upload at native resolution — the GPU scales to tw x th at render time
+    // using PIXELART mode for crisp pixel art. No CPU pre-scaling.
+    SDL_Texture* tex = SDL_CreateTextureFromSurface(ren, final);
+    SDL_DestroySurface(final);
+    if (tex)
+        SDL_SetTextureScaleMode(tex, SDL_SCALEMODE_PIXELART);
     return tex;
 }
 
@@ -737,18 +734,39 @@ void GameScene::Render(Window& window, float alpha) {
             };
 
             {
-                auto pv = reg.view<PlayerTag, Transform, Collider>();
-                pv.each([&](const Transform& t, const Collider& c) {
+                auto pv = reg.view<PlayerTag, Transform, Collider, AnimationState>();
+                pv.each([&](entt::entity pe, const Transform& t, const Collider& c,
+                            const AnimationState& pa) {
                     int      sx = (int)(t.x - mCamera.x), sy = (int)(t.y - mCamera.y);
                     SDL_Rect r = {sx, sy, c.w, c.h};
                     fill(r, 0, 255, 255, 50);
                     outline(r, 0, 255, 255);
-                    Text lbl(std::to_string(c.w) + "x" + std::to_string(c.h),
-                             SDL_Color{0, 255, 255, 255},
-                             sx + 2,
-                             sy + 2,
-                             10);
+
+                    // Show which animation is active + collider size
+                    const char* animName = "??";
+                    switch (pa.currentAnim) {
+                        case AnimationID::IDLE:  animName = "IDLE";  break;
+                        case AnimationID::WALK:  animName = "WALK";  break;
+                        case AnimationID::JUMP:  animName = "JUMP";  break;
+                        case AnimationID::HURT:  animName = "HURT";  break;
+                        case AnimationID::DUCK:  animName = "DUCK";  break;
+                        case AnimationID::FRONT: animName = "FALL";  break;
+                        case AnimationID::SLASH: animName = "SLASH"; break;
+                        case AnimationID::NONE:  animName = "NONE";  break;
+                    }
+                    std::string info = std::string(animName) + " "
+                                     + std::to_string(c.w) + "x" + std::to_string(c.h);
+                    Text lbl(info, SDL_Color{0, 255, 255, 255}, sx + 2, sy - 14, 10);
                     lbl.Render(ren);
+
+                    // Show render offset if present
+                    if (const auto* roff = reg.try_get<RenderOffset>(pe)) {
+                        std::string offStr = "roff " + std::to_string(roff->x)
+                                           + "," + std::to_string(roff->y);
+                        Text offLbl(offStr, SDL_Color{0, 200, 200, 200},
+                                    sx + 2, sy + 2, 9);
+                        offLbl.Render(ren);
+                    }
                 });
             }
             {
@@ -1005,7 +1023,8 @@ void GameScene::Spawn() {
                                              // sees NONE and triggers a spurious swap
         reg.emplace<AnimationState>(player, as);
     }
-    reg.emplace<Renderable>(player, knightIdleSheet->GetTexture(), idleFrames, false);
+    reg.emplace<Renderable>(player, knightIdleSheet->GetTexture(), idleFrames, false,
+                             mPlayerSpriteW, mPlayerSpriteH);
     reg.emplace<PlayerTag>(player);
     reg.emplace<Health>(player);
     reg.emplace<Collider>(player, pColW, pColH);
@@ -1016,10 +1035,41 @@ void GameScene::Spawn() {
         base.standH     = pColH;
         base.standRoffX = pROffX;
         base.standRoffY = pROffY;
-        base.duckW      = pColW;
-        base.duckH      = pColH / 2;
-        base.duckRoffX  = pROffX;
-        base.duckRoffY  = -(mPlayerSpriteH - base.duckH);
+
+        // Load all per-animation hitboxes from the profile.
+        PlayerProfile hbProfile;
+        bool hasHBProfile =
+            !mProfilePath.empty() && LoadPlayerProfile(mProfilePath, hbProfile);
+
+        // Crouch hitbox
+        const AnimHitbox& crouchHB =
+            hasHBProfile ? hbProfile.Slot(PlayerAnimSlot::Crouch).hitbox : AnimHitbox{};
+        if (!crouchHB.IsDefault()) {
+            base.duckW     = crouchHB.w;
+            base.duckH     = crouchHB.h;
+            base.duckRoffX = -crouchHB.x;
+            base.duckRoffY = -crouchHB.y;
+        } else {
+            base.duckW     = pColW;
+            base.duckH     = pColH / 2;
+            base.duckRoffX = pROffX;
+            base.duckRoffY = -(mPlayerSpriteH - base.duckH);
+        }
+
+        // Helper: convert AnimHitbox from profile to AnimCollider
+        auto toAnimCol = [](const AnimHitbox& hb) -> AnimCollider {
+            if (hb.IsDefault()) return {};
+            return {hb.w, hb.h, -hb.x, -hb.y};
+        };
+
+        if (hasHBProfile) {
+            base.walk  = toAnimCol(hbProfile.Slot(PlayerAnimSlot::Walk).hitbox);
+            base.jump  = toAnimCol(hbProfile.Slot(PlayerAnimSlot::Jump).hitbox);
+            base.fall  = toAnimCol(hbProfile.Slot(PlayerAnimSlot::Fall).hitbox);
+            base.slash = toAnimCol(hbProfile.Slot(PlayerAnimSlot::Slash).hitbox);
+            base.hurt  = toAnimCol(hbProfile.Slot(PlayerAnimSlot::Hurt).hitbox);
+        }
+
         reg.emplace<PlayerBaseCollider>(player, base);
     }
     reg.emplace<InvincibilityTimer>(player);
@@ -1139,8 +1189,15 @@ void GameScene::Spawn() {
             if (frameTex.empty() || !frameTex[0])
                 continue;
 
-            std::vector<SDL_Rect> frameRects((int)frameTex.size(),
-                                             SDL_Rect{0, 0, ts.w, ts.h});
+            // Build frame rects from the native-resolution textures.
+            // Each animated frame is its own texture, so src = full texture.
+            std::vector<SDL_Rect> frameRects;
+            frameRects.reserve(frameTex.size());
+            for (auto* ft : frameTex) {
+                float ftW = 0, ftH = 0;
+                if (ft) SDL_GetTextureSize(ft, &ftW, &ftH);
+                frameRects.push_back({0, 0, (int)ftW, (int)ftH});
+            }
             auto                  tile = reg.create();
             reg.emplace<Transform>(tile, ts.x, ts.y);
 
@@ -1173,7 +1230,7 @@ void GameScene::Spawn() {
                 reg.emplace<ColliderOffset>(tile, ts.hitbox->offX, ts.hitbox->offY);
 
             reg.emplace<TileAnimTag>(tile);
-            reg.emplace<Renderable>(tile, frameTex[0], std::move(frameRects), false);
+            reg.emplace<Renderable>(tile, frameTex[0], std::move(frameRects), false, ts.w, ts.h);
             reg.emplace<AnimationState>(tile, 0, (int)frameTex.size(), 0.0f, def.fps, true);
             tileAnimFrameMap[tile] = std::move(frameTex);
             continue;
@@ -1265,8 +1322,13 @@ void GameScene::Spawn() {
                 reg.emplace<PowerUpTag>(tile, puType, ts.powerUp->duration);
         }
 
-        std::vector<SDL_Rect> tileFrame = {{0, 0, ts.w, ts.h}};
-        reg.emplace<Renderable>(tile, tex, tileFrame, false);
+        // Source rect covers the full native-resolution texture.
+        // RenderSystem draws it into a dst rect of ts.w x ts.h — the GPU
+        // handles the scale with PIXELART mode for crisp results.
+        float texW = 0, texH = 0;
+        SDL_GetTextureSize(tex, &texW, &texH);
+        std::vector<SDL_Rect> tileFrame = {{0, 0, (int)texW, (int)texH}};
+        reg.emplace<Renderable>(tile, tex, tileFrame, false, ts.w, ts.h);
         reg.emplace<AnimationState>(tile, 0, 1, 0.0f, 1.0f, false);
     }
 

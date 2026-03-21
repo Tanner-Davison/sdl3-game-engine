@@ -94,6 +94,7 @@ class PlayerCreatorScene : public Scene {
     struct SlotPreview {
         std::unique_ptr<SpriteSheet>  sheet;  // stitched sprite sheet for this slot
         std::vector<SDL_Rect>         frames; // frame rects inside sheet->GetSurface()
+        std::vector<std::string>      paths;  // sorted PNG file paths (parallel to frames)
         int                           frameW = 0;
         int                           frameH = 0;
     };
@@ -106,6 +107,13 @@ class PlayerCreatorScene : public Scene {
 
     void rebuildPreview(int slotIdx);
     void clearPreview(int slotIdx);
+    void deleteFrame(int slotIdx, int frameIdx); // delete a single PNG and rebuild
+
+    // ── Frame strip ───────────────────────────────────────────────────────────
+    int  mFrameStripScroll = 0;   // horizontal scroll offset (in frames)
+    static constexpr int FRAME_THUMB_SZ = 48;  // thumbnail size in the strip
+    static constexpr int FRAME_STRIP_H  = 68;  // total height of strip area
+    std::vector<SDL_Rect> mFrameDelRects; // per-frame delete button rects (rebuilt each render)
 
     // ── Hitbox editor ────────────────────────────────────────────────────────
     // The hitbox rect is drawn/edited in *preview-local* coordinates.

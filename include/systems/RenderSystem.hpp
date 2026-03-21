@@ -71,10 +71,15 @@ inline void RenderSystem(entt::registry& reg, SDL_Renderer* renderer,
             auto& anim = *anip;
             if (!r.sheet || r.frames.empty()) continue;
 
-            const SDL_Rect& src = r.frames[anim.currentFrame];
-            if (culled(t.x, t.y, src.w, src.h)) continue;
+            int tFrameIdx = anim.currentFrame;
+            if (tFrameIdx >= (int)r.frames.size()) tFrameIdx = 0;
+            const SDL_Rect& src = r.frames[tFrameIdx];
+            // Use renderW/H when set (native-res tiles); fall back to src dims.
+            const int tDrawW = (r.renderW > 0) ? r.renderW : src.w;
+            const int tDrawH = (r.renderH > 0) ? r.renderH : src.h;
+            if (culled(t.x, t.y, tDrawW, tDrawH)) continue;
 
-            SDL_FRect dst = {t.x - camX, t.y - camY, (float)src.w, (float)src.h};
+            SDL_FRect dst = {t.x - camX, t.y - camY, (float)tDrawW, (float)tDrawH};
 
             // Spin rotation for floating tiles
             double angle = 0.0;
@@ -114,10 +119,18 @@ inline void RenderSystem(entt::registry& reg, SDL_Renderer* renderer,
                   const AnimationState& anim) {
         if (!r.sheet || r.frames.empty()) return;
 
-        const SDL_Rect& src = r.frames[anim.currentFrame];
+        // Clamp frame index — protects against a 1-frame window where
+        // AnimationSystem has advanced currentFrame but PlayerStateSystem
+        // hasn't swapped the frames vector yet (or vice versa).
+        int frameIdx = anim.currentFrame;
+        if (frameIdx >= (int)r.frames.size()) frameIdx = 0;
+        const SDL_Rect& src = r.frames[frameIdx];
+        // Use the intended render size when set; fall back to source frame dims.
+        const int drawW = (r.renderW > 0) ? r.renderW : src.w;
+        const int drawH = (r.renderH > 0) ? r.renderH : src.h;
         // Cull using physics position (conservative — interpolated pos is between
         // prev and curr, so if curr is on-screen prev almost certainly is too).
-        if (culled(t.x, t.y, src.w, src.h)) return;
+        if (culled(t.x, t.y, drawW, drawH)) return;
 
         // Use interpolated world position for all draw calculations below
         auto [ix, iy] = interpPos(entity, t);
@@ -160,23 +173,7 @@ inline void RenderSystem(entt::registry& reg, SDL_Renderer* renderer,
                 case GravityDir::DOWN:
                     if (roff) {
                         if (r.flipH) {
-                            // When the sprite is flipped horizontally, SDL mirrors
-                            // the pixels but the dst rect origin stays top-left.
-                            // The collider must still appear over the visual body.
-                            //
-                            // NOT flipped:  body left edge = sprite_x + hb.x
-                            //               hb.x = -roff->x  (roff->x is negative)
-                            //               rx = ix + roff->x
-                            //               body at: rx + (-roff->x) = ix  ✓
-                            //
-                            // FLIPPED:      body appears mirrored — its left edge
-                            //               is now src.w - hb.x - col->w from
-                            //               the sprite's LEFT edge.
-                            //               We need:  rx + (src.w - hb.x - col->w) = ix
-                            //               => rx = ix - src.w + hb.x + col->w
-                            //                     = ix - (src.w - col->w) + hb.x
-                            //                     = ix - (src.w - col->w) - roff->x
-                            rx = (ix - camX) - (src.w - col->w) - roff->x;
+                            rx = (ix - camX) - (drawW - col->w) - roff->x;
                         } else {
                             rx += roff->x;
                         }
@@ -184,25 +181,24 @@ inline void RenderSystem(entt::registry& reg, SDL_Renderer* renderer,
                     }
                     break;
                 case GravityDir::UP:
-                    rx += roff ? roff->x : -(src.w - col->w) / 2;
+                    rx += roff ? roff->x : -(drawW - col->w) / 2;
                     ry += roff ? roff->y : 0;
                     break;
                 case GravityDir::LEFT:
                     rx += roff ? roff->y : 0;
-                    ry += roff ? roff->x : -(src.h - col->h) / 2;
+                    ry += roff ? roff->x : -(drawH - col->h) / 2;
                     break;
                 case GravityDir::RIGHT:
-                    rx  = (ix - camX) + col->h - src.w - (roff ? roff->y : 0);
-                    ry += roff ? roff->x : -(src.h - col->h) / 2;
+                    rx  = (ix - camX) + col->h - drawW - (roff ? roff->y : 0);
+                    ry += roff ? roff->x : -(drawH - col->h) / 2;
                     break;
             }
         } else {
             // g->active is false (e.g. on a ladder, or open-world mode).
-            // Must still apply the correct flip-aware offset — the same
-            // formula used in the GravityDir::DOWN branch above.
+            // Must still apply the correct flip-aware offset.
             if (roff && col) {
                 if (r.flipH) {
-                    rx = (ix - camX) - (src.w - col->w) - roff->x;
+                    rx = (ix - camX) - (drawW - col->w) - roff->x;
                 } else {
                     rx += roff->x;
                 }
@@ -213,8 +209,11 @@ inline void RenderSystem(entt::registry& reg, SDL_Renderer* renderer,
             }
         }
 
+        // Source rect samples the full native-res frame; dst rect scales to
+        // the intended render size. The GPU does the single scale in one pass
+        // with nearest-neighbor, keeping pixel art crisp.
         SDL_FRect srcF = {(float)src.x, (float)src.y, (float)src.w, (float)src.h};
-        SDL_FRect dst  = {rx, ry, (float)src.w, (float)src.h};
+        SDL_FRect dst  = {rx, ry, (float)drawW, (float)drawH};
         SDL_RenderTextureRotated(renderer, r.sheet, &srcF, &dst, angle, nullptr, flip);
 
         if (colorModded)

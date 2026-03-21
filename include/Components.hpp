@@ -84,6 +84,8 @@ struct Renderable {
     SDL_Texture*          sheet = nullptr;
     std::vector<SDL_Rect> frames;
     bool                  flipH = false;
+    int                   renderW = 0; // intended render width  (0 = use frame src.w)
+    int                   renderH = 0; // intended render height (0 = use frame src.h)
 };
 
 // Draws the sprite offset from Transform position.
@@ -134,6 +136,7 @@ struct GravityState {
     float      velocity        = 0.0f;
     bool       jumpHeld        = false;
     bool       isCrouching     = false;
+    bool       sprinting       = false; // true while Shift is held
     GravityDir direction       = GravityDir::DOWN;
     float      punishmentTimer = 0.0f; // counts down after a hit; gravity locked off until 0
 };
@@ -343,13 +346,51 @@ struct ClimbState {
 // specific character (from PlayerProfile or frost-knight defaults).
 // PlayerStateSystem reads these instead of the hardcoded PLAYER_STAND_* /
 // PLAYER_DUCK_* constants so custom characters keep their correct hitbox.
+// Per-animation collider dimensions. If w == 0, the system falls back to
+// the standing collider for that animation — so only slots with a custom
+// hitbox set in the character creator will override.
+struct AnimCollider {
+    int w     = 0; // 0 = use stand dims
+    int h     = 0;
+    int roffX = 0;
+    int roffY = 0;
+    bool IsDefault() const { return w == 0 && h == 0; }
+};
+
 struct PlayerBaseCollider {
-    int standW    = PLAYER_STAND_WIDTH;
-    int standH    = PLAYER_STAND_HEIGHT;
+    int standW     = PLAYER_STAND_WIDTH;
+    int standH     = PLAYER_STAND_HEIGHT;
     int standRoffX = PLAYER_STAND_ROFF_X;
     int standRoffY = PLAYER_STAND_ROFF_Y;
-    int duckW     = PLAYER_DUCK_WIDTH;
-    int duckH     = PLAYER_DUCK_HEIGHT;
+    int duckW      = PLAYER_DUCK_WIDTH;
+    int duckH      = PLAYER_DUCK_HEIGHT;
     int duckRoffX  = PLAYER_DUCK_ROFF_X;
     int duckRoffY  = PLAYER_DUCK_ROFF_Y;
+
+    // Per-animation overrides (zeros = fall back to stand dims)
+    AnimCollider walk;
+    AnimCollider jump;
+    AnimCollider fall;
+    AnimCollider slash;
+    AnimCollider hurt;
+
+    // Resolve the correct collider for a given animation ID.
+    // Returns stand dims if the animation has no custom override.
+    void Resolve(AnimationID id, int& outW, int& outH, int& outRoffX, int& outRoffY) const {
+        const AnimCollider* ac = nullptr;
+        switch (id) {
+            case AnimationID::DUCK:  outW = duckW; outH = duckH; outRoffX = duckRoffX; outRoffY = duckRoffY; return;
+            case AnimationID::WALK:  ac = &walk;  break;
+            case AnimationID::JUMP:  ac = &jump;  break;
+            case AnimationID::FRONT: ac = &fall;  break;
+            case AnimationID::SLASH: ac = &slash; break;
+            case AnimationID::HURT:  ac = &hurt;  break;
+            default: break;
+        }
+        if (ac && !ac->IsDefault()) {
+            outW = ac->w; outH = ac->h; outRoffX = ac->roffX; outRoffY = ac->roffY;
+        } else {
+            outW = standW; outH = standH; outRoffX = standRoffX; outRoffY = standRoffY;
+        }
+    }
 };

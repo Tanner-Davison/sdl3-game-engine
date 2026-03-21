@@ -77,12 +77,14 @@ void TitleScene::openCharPicker() {
             SDL_Surface* scaled = SDL_CreateSurface(dstW, dstH, SDL_PIXELFORMAT_ARGB8888);
             if (scaled) {
                 SDL_SetSurfaceBlendMode(conv, SDL_BLENDMODE_NONE);
-                SDL_BlitSurfaceScaled(conv, nullptr, scaled, nullptr, SDL_SCALEMODE_LINEAR);
+                SDL_BlitSurfaceScaled(conv, nullptr, scaled, nullptr, SDL_SCALEMODE_PIXELART);
                 SDL_DestroySurface(conv);
                 final = scaled;
             }
         }
         c.previewTex = SDL_CreateTextureFromSurface(mRenderer, final);
+        if (c.previewTex)
+            SDL_SetTextureScaleMode(c.previewTex, SDL_SCALEMODE_PIXELART);
         SDL_DestroySurface(final);
     };
 

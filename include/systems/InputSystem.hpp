@@ -57,12 +57,19 @@ inline void InputSystem(entt::registry& reg, SDL_Event& e) {
                     break;
                 case SDLK_LCTRL:
                     g.isCrouching = true;
+                    // Don't zero velocity — let MovementSystem apply friction
+                    // so the character slides to a gradual stop.
+                    break;
+                case SDLK_LSHIFT:
+                    g.sprinting = true;
                     break;
             }
         }
 
-        if (e.type == SDL_EVENT_KEY_UP && e.key.key == SDLK_LCTRL)
-            g.isCrouching = false;
+        if (e.type == SDL_EVENT_KEY_UP) {
+            if (e.key.key == SDLK_LCTRL)  g.isCrouching = false;
+            if (e.key.key == SDLK_LSHIFT) g.sprinting   = false;
+        }
 
         // ── Event-driven W/S tracking for ladder climbing ─────────────────────────
         // These flags are set/cleared by events so LadderSystem never polls the

@@ -38,9 +38,9 @@
             "folderPath": "game_assets/char_sprites/GHOSTED/Jump",
             "fps": 36.0,
             "hitbox": {
-                "h": 104,
-                "w": 84,
-                "x": 48,
+                "h": 93,
+                "w": 52,
+                "x": 58,
                 "y": 37
             },
             "slot": 3
@@ -60,10 +60,10 @@
             "folderPath": "game_assets/char_sprites/GHOSTED/Slash",
             "fps": 93.0,
             "hitbox": {
-                "h": 114,
-                "w": 84,
-                "x": 48,
-                "y": 37
+                "h": 109,
+                "w": 99,
+                "x": 55,
+                "y": 26
             },
             "slot": 5
         },

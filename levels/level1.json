@@ -1,0 +1,14 @@
+{
+    "background": "game_assets/backgrounds/deepspace_scene.png",
+    "bgFitMode": "cover",
+    "bgRepeat": false,
+    "coins": [],
+    "enemies": [],
+    "gravityMode": "platformer",
+    "name": "level1",
+    "player": {
+        "x": 638.0,
+        "y": 740.0
+    },
+    "tiles": []
+}

@@ -36,10 +36,11 @@ SpriteSheet::SpriteSheet(const std::string& directory, const std::string& prefix
                                      : 1;
     int endIdx   = startIdx + frameCount - 1;
 
-    // Load frames in strict numeric order (startIdx..endIdx) so that column i
-    // in the stitched surface always matches frame number startIdx+i.
-    // This avoids the lex-vs-numeric mismatch where filesystem order puts
-    // "Gold_10" before "Gold_2", causing wrong rects to be stored in frames[].
+    // Load frames at native resolution. The atlas uses a grid layout (multiple
+    // rows) when a single-row strip would exceed the GPU max texture dimension
+    // (conservatively capped at 4096). This avoids silent texture creation
+    // failures while keeping every pixel at source quality — the GPU handles
+    // all scaling at render time via nearest-neighbor for maximum crispness.
     for (int i = startIdx; i <= endIdx; i++) {
         std::string numStr = std::to_string(i);
         if (padDigits > 0)
@@ -51,16 +52,6 @@ SpriteSheet::SpriteSheet(const std::string& directory, const std::string& prefix
             for (auto* f : frameSurfaces) SDL_DestroySurface(f);
             return;
         }
-        // Scale down if target dimensions were provided
-        if (targetW > 0 && targetH > 0) {
-            SDL_Surface* scaled = SDL_CreateSurface(targetW, targetH, s->format);
-            SDL_SetSurfaceBlendMode(scaled, SDL_BLENDMODE_BLEND);
-            SDL_Rect src  = {0, 0, s->w, s->h};
-            SDL_Rect dest = {0, 0, targetW, targetH};
-            SDL_BlitSurfaceScaled(s, &src, scaled, &dest, SDL_SCALEMODE_LINEAR);
-            SDL_DestroySurface(s);
-            s = scaled;
-        }
         if (i == startIdx) {
             frameW = s->w;
             frameH = s->h;
@@ -70,7 +61,14 @@ SpriteSheet::SpriteSheet(const std::string& directory, const std::string& prefix
 
     if (frameSurfaces.empty()) return;
 
-    surface = SDL_CreateSurface(frameW * frameCount, frameH, frameSurfaces[0]->format);
+    // Determine grid layout: fit as many columns as possible within the
+    // safe GPU texture width limit, then wrap to additional rows.
+    static constexpr int MAX_TEX = 4096;
+    int cols = std::max(1, MAX_TEX / frameW);
+    if (cols > frameCount) cols = frameCount;
+    int rows = (frameCount + cols - 1) / cols;
+
+    surface = SDL_CreateSurface(frameW * cols, frameH * rows, frameSurfaces[0]->format);
     if (!surface) {
         std::print("Failed to create stitched surface: {}\n", SDL_GetError());
         for (auto* f : frameSurfaces) SDL_DestroySurface(f);
@@ -78,21 +76,22 @@ SpriteSheet::SpriteSheet(const std::string& directory, const std::string& prefix
     }
     SDL_SetSurfaceBlendMode(surface, SDL_BLENDMODE_BLEND);
 
-    // Stitch and register rects — column i corresponds to frame number startIdx+i.
     for (int i = 0; i < static_cast<int>(frameSurfaces.size()); i++) {
-        SDL_Rect dest = {i * frameW, 0, frameW, frameH};
+        int col = i % cols;
+        int row = i / cols;
+        SDL_Rect dest = {col * frameW, row * frameH, frameW, frameH};
         SDL_SetSurfaceBlendMode(frameSurfaces[i], SDL_BLENDMODE_NONE);
         SDL_BlitSurface(frameSurfaces[i], nullptr, surface, &dest);
         int         frameIdx = startIdx + i;
         std::string frameKey = std::to_string(frameIdx);
         if (padDigits > 0)
             frameKey = std::string(std::max(0, padDigits - (int)frameKey.size()), '0') + frameKey;
-        // Store rect using the numeric key — GetAnimation will sort by stoi(suffix)
-        // and get back exactly the same order as the stitched columns.
-        frames[prefix + frameKey] = {i * frameW, 0, frameW, frameH};
+        frames[prefix + frameKey] = {col * frameW, row * frameH, frameW, frameH};
         SDL_DestroySurface(frameSurfaces[i]);
     }
 
+    mRenderW = targetW;
+    mRenderH = targetH;
     std::print("Loaded {} frames from directory: {}\n", frameCount, dir);
 }
 
@@ -110,15 +109,6 @@ SpriteSheet::SpriteSheet(const std::vector<std::string>& paths, int targetW, int
             for (auto* f : frameSurfaces) SDL_DestroySurface(f);
             return;
         }
-        if (targetW > 0 && targetH > 0) {
-            SDL_Surface* scaled = SDL_CreateSurface(targetW, targetH, s->format);
-            SDL_SetSurfaceBlendMode(scaled, SDL_BLENDMODE_BLEND);
-            SDL_Rect src  = {0, 0, s->w, s->h};
-            SDL_Rect dest = {0, 0, targetW, targetH};
-            SDL_BlitSurfaceScaled(s, &src, scaled, &dest, SDL_SCALEMODE_LINEAR);
-            SDL_DestroySurface(s);
-            s = scaled;
-        }
         if (frameSurfaces.empty()) { frameW = s->w; frameH = s->h; }
         frameSurfaces.push_back(s);
     }
@@ -126,7 +116,12 @@ SpriteSheet::SpriteSheet(const std::vector<std::string>& paths, int targetW, int
     if (frameSurfaces.empty()) return;
     int frameCount = (int)frameSurfaces.size();
 
-    surface = SDL_CreateSurface(frameW * frameCount, frameH, frameSurfaces[0]->format);
+    static constexpr int MAX_TEX = 4096;
+    int cols = std::max(1, MAX_TEX / frameW);
+    if (cols > frameCount) cols = frameCount;
+    int rows = (frameCount + cols - 1) / cols;
+
+    surface = SDL_CreateSurface(frameW * cols, frameH * rows, frameSurfaces[0]->format);
     if (!surface) {
         std::print("Failed to create stitched surface\n");
         for (auto* f : frameSurfaces) SDL_DestroySurface(f);
@@ -135,14 +130,18 @@ SpriteSheet::SpriteSheet(const std::vector<std::string>& paths, int targetW, int
     SDL_SetSurfaceBlendMode(surface, SDL_BLENDMODE_BLEND);
 
     for (int i = 0; i < frameCount; ++i) {
-        SDL_Rect dest = {i * frameW, 0, frameW, frameH};
+        int col = i % cols;
+        int row = i / cols;
+        SDL_Rect dest = {col * frameW, row * frameH, frameW, frameH};
         SDL_SetSurfaceBlendMode(frameSurfaces[i], SDL_BLENDMODE_NONE);
         SDL_BlitSurface(frameSurfaces[i], nullptr, surface, &dest);
         // Key frames by index string so GetAnimation("") returns all in order
-        frames[std::to_string(i)] = {i * frameW, 0, frameW, frameH};
+        frames[std::to_string(i)] = {col * frameW, row * frameH, frameW, frameH};
         SDL_DestroySurface(frameSurfaces[i]);
     }
 
+    mRenderW = targetW;
+    mRenderH = targetH;
     std::print("Loaded {} frames from explicit path list\n", frameCount);
 }
 

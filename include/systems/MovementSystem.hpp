@@ -51,9 +51,14 @@ inline void MovementSystem(entt::registry& reg, float dt, int windowW) {
             return;
         }
 
+        // Effective speed: base * sprint multiplier when Shift is held
+        const float effSpeed = v.speed * (g.sprinting ? SPRINT_MULTIPLIER : 1.0f);
+
         if (g.isCrouching) {
-            v.dx -= v.dx * friction * dt;
-            v.dy -= v.dy * friction * dt;
+            // Crouching: no new input, just decelerate with higher friction
+            // for a smooth slide-to-stop instead of an instant halt.
+            v.dx -= v.dx * CROUCH_FRICTION * dt;
+            v.dy -= v.dy * CROUCH_FRICTION * dt;
             if (std::abs(v.dx) < 0.5f)
                 v.dx = 0.0f;
             if (std::abs(v.dy) < 0.5f)
@@ -67,9 +72,9 @@ inline void MovementSystem(entt::registry& reg, float dt, int windowW) {
                 case GravityDir::DOWN:
                 case GravityDir::UP: {
                     if (keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT])
-                        v.dx = -v.speed;
+                        v.dx = -effSpeed;
                     if (keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_RIGHT])
-                        v.dx = v.speed;
+                        v.dx = effSpeed;
                     if (!keys[SDL_SCANCODE_A] && !keys[SDL_SCANCODE_D]
                      && !keys[SDL_SCANCODE_LEFT] && !keys[SDL_SCANCODE_RIGHT]) {
                         v.dx -= v.dx * friction * dt;
@@ -82,9 +87,9 @@ inline void MovementSystem(entt::registry& reg, float dt, int windowW) {
                 case GravityDir::LEFT:
                 case GravityDir::RIGHT: {
                     if (keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP])
-                        v.dy = -v.speed;
+                        v.dy = -effSpeed;
                     if (keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN])
-                        v.dy = v.speed;
+                        v.dy = effSpeed;
                     if (!keys[SDL_SCANCODE_W] && !keys[SDL_SCANCODE_S]
                      && !keys[SDL_SCANCODE_UP] && !keys[SDL_SCANCODE_DOWN]) {
                         v.dy -= v.dy * friction * dt;

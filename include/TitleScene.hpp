@@ -289,7 +289,10 @@ class TitleScene : public Scene {
                     if (conv) {
                         SDL_Texture* t = SDL_CreateTextureFromSurface(mRenderer, conv);
                         SDL_DestroySurface(conv);
-                        if (t) c.walkFrames.push_back(t);
+                        if (t) {
+                            SDL_SetTextureScaleMode(t, SDL_SCALEMODE_PIXELART);
+                            c.walkFrames.push_back(t);
+                        }
                     }
                 }
                 ++c.walkLoadIdx;

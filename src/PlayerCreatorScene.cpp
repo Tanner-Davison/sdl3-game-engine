@@ -221,13 +221,13 @@ bool PlayerCreatorScene::HandleEvent(SDL_Event& e) {
             if (mHBInitialised && mPreviewCellRect.w > 0) commitHBToProfile(mSelectedSlot);
             mSelectedSlot = (mSelectedSlot + 1) % PLAYER_ANIM_SLOT_COUNT;
             initHBFromProfile(mSelectedSlot);
-            mAnimFrame = 0; mAnimTimer = 0;
+            mAnimFrame = 0; mAnimTimer = 0; mFrameStripScroll = 0;
         }
         if (e.key.key == SDLK_UP || e.key.key == SDLK_W) {
             if (mHBInitialised && mPreviewCellRect.w > 0) commitHBToProfile(mSelectedSlot);
             mSelectedSlot = (mSelectedSlot - 1 + PLAYER_ANIM_SLOT_COUNT) % PLAYER_ANIM_SLOT_COUNT;
             initHBFromProfile(mSelectedSlot);
-            mAnimFrame = 0; mAnimTimer = 0;
+            mAnimFrame = 0; mAnimTimer = 0; mFrameStripScroll = 0;
         }
         if (e.key.key == SDLK_ESCAPE) {
             mGoBack = true;
@@ -284,6 +284,7 @@ bool PlayerCreatorScene::HandleEvent(SDL_Event& e) {
                 mSelectedSlot = i;
                 initHBFromProfile(mSelectedSlot);
                 mAnimFrame = 0; mAnimTimer = 0;
+                mFrameStripScroll = 0;
                 return true;
             }
         }
@@ -365,6 +366,16 @@ bool PlayerCreatorScene::HandleEvent(SDL_Event& e) {
             return true;
         }
 
+        // Frame strip delete buttons
+        if (!mFrameDelRects.empty()) {
+            for (int i = 0; i < (int)mFrameDelRects.size(); ++i) {
+                if (mFrameDelRects[i].w > 0 && hit(mFrameDelRects[i], mx, my)) {
+                    deleteFrame(mSelectedSlot, i);
+                    return true;
+                }
+            }
+        }
+
         // Hitbox handle hit test — always active once initialised, no sprite required
         int handle = hitboxHandleAt(mx, my);
         if (handle >= 0 && mHBInitialised) {
@@ -410,6 +421,18 @@ bool PlayerCreatorScene::HandleEvent(SDL_Event& e) {
         if (hit(mRosterPanel, mx, my)) {
             mRosterScroll = std::clamp(mRosterScroll - (int)e.wheel.y,
                                        0, std::max(0, (int)mRoster.size() - 1));
+        }
+        // Scroll frame strip (row-based) when hovering the centre panel
+        if (hit(mCenterPanel, mx, my) && !hit(mRosterPanel, mx, my)) {
+            const auto& sp = mPreviews[mSelectedSlot];
+            if (sp.has_value() && !sp->frames.empty()) {
+                int availW = mCenterPanel.w - 8;
+                int cols   = std::max(1, availW / (FRAME_THUMB_SZ + 4));
+                int totalRows = ((int)sp->frames.size() + cols - 1) / cols;
+                int maxScrollRow = std::max(0, totalRows - 3); // 3 = MAX_VIS_ROWS
+                mFrameStripScroll = std::clamp(mFrameStripScroll - (int)e.wheel.y,
+                                               0, maxScrollRow);
+            }
         }
     }
 
@@ -664,6 +687,82 @@ void PlayerCreatorScene::Render(Window& window, float /*alpha*/) {
                            + " y:" + std::to_string(gameRoffY)
                            + "   col: " + std::to_string(liveW) + "x" + std::to_string(liveH);
         drawText(s, offStr, mCenterPanel.x + 4, hintY + 30, 12, {180, 160, 100, 255});
+
+        // Line 3: prominent hitbox size for the current animation slot
+        std::string slotName = PlayerAnimSlotName(static_cast<PlayerAnimSlot>(mSelectedSlot));
+        std::string hbSizeStr = slotName + " hitbox: "
+                              + std::to_string(liveW) + "w x " + std::to_string(liveH) + "h"
+                              + "  (sprite: " + std::to_string(srcW) + "x" + std::to_string(srcH) + ")";
+        drawText(s, hbSizeStr, mCenterPanel.x + 4, hintY + 44, 13, {255, 200, 80, 255});
+
+        // ── Frame strip: wrapping grid of thumbnails (up to 3 rows, then scroll) ──
+        int stripY = hintY + 64;
+        const auto& stripPrev = mPreviews[mSelectedSlot];
+        if (stripPrev.has_value() && !stripPrev->frames.empty()) {
+            const int TH    = FRAME_THUMB_SZ;
+            const int PAD   = 4;
+            const int DELH  = 14;
+            const int CELLW = TH + PAD;
+            const int CELLH = TH + DELH + PAD + 2;
+            const int MAX_VIS_ROWS = 3;
+            int nFrames  = (int)stripPrev->frames.size();
+            int availW   = mCenterPanel.w - 8;
+            int cols     = std::max(1, availW / CELLW);
+            int totalRows = (nFrames + cols - 1) / cols;
+            int visRows   = std::min(totalRows, MAX_VIS_ROWS);
+
+            // Header
+            std::string hdr = "Frames (" + std::to_string(nFrames) + ")";
+            if (totalRows > MAX_VIS_ROWS)
+                hdr += "  scroll for more";
+            drawText(s, hdr, mCenterPanel.x + 4, stripY, 11, {140, 150, 180, 255});
+            stripY += 16;
+
+            // Background
+            SDL_Rect stripBg = {mCenterPanel.x + 2, stripY, availW + 4, visRows * CELLH + PAD};
+            fillRect(s, stripBg, {14, 16, 28, 255});
+            outlineRect(s, stripBg, {50, 55, 80, 255});
+
+            mFrameDelRects.clear();
+            mFrameDelRects.resize(nFrames);
+
+            SDL_Surface* sheet = stripPrev->sheet->GetSurface();
+            int startRow = mFrameStripScroll; // scroll is in rows now
+            for (int row = 0; row < visRows; ++row) {
+                for (int col = 0; col < cols; ++col) {
+                    int fi = (startRow + row) * cols + col;
+                    if (fi >= nFrames) break;
+                    int fx = mCenterPanel.x + 4 + col * CELLW;
+                    int fy = stripY + PAD + row * CELLH;
+
+                    // Thumbnail
+                    const SDL_Rect& fr = stripPrev->frames[fi];
+                    SDL_Rect thumbDst = {fx, fy, TH, TH};
+                    SDL_Surface* frameSurf = SDL_CreateSurface(fr.w, fr.h, sheet->format);
+                    if (frameSurf) {
+                        SDL_BlitSurface(sheet, &fr, frameSurf, nullptr);
+                        blitScaled(s, frameSurf, thumbDst);
+                        SDL_DestroySurface(frameSurf);
+                    }
+
+                    // Highlight current animation frame
+                    if (fi == mAnimFrame)
+                        outlineRect(s, thumbDst, {100, 200, 255, 255}, 2);
+                    else
+                        outlineRect(s, thumbDst, {40, 50, 70, 255});
+
+                    // Frame number
+                    drawText(s, std::to_string(fi + 1), fx + 2, fy + 1, 8, {180, 180, 200, 255});
+
+                    // Delete button below thumbnail
+                    SDL_Rect delBtn = {fx, fy + TH + 2, TH, DELH};
+                    mFrameDelRects[fi] = delBtn;
+                    fillRect(s, delBtn, {120, 30, 30, 220});
+                    outlineRect(s, delBtn, {180, 60, 60, 255});
+                    drawTextCentered(s, "x", delBtn, 9, {255, 180, 180, 255});
+                }
+            }
+        }
     }
 
     // Save & Back buttons
@@ -791,6 +890,7 @@ void PlayerCreatorScene::rebuildPreview(int slotIdx) {
             p.frameW = fw;
             p.frameH = fh;
             p.frames = std::move(frames);
+            p.paths  = std::move(pathStrs);
             p.sheet  = std::move(ss);
             mPreviews[slotIdx] = std::move(p);
         }
@@ -808,6 +908,36 @@ void PlayerCreatorScene::clearPreview(int slotIdx) {
         mAnimFrame = 0;
         mAnimTimer = 0;
     }
+}
+
+void PlayerCreatorScene::deleteFrame(int slotIdx, int frameIdx) {
+    auto& prev = mPreviews[slotIdx];
+    if (!prev.has_value() || frameIdx < 0 || frameIdx >= (int)prev->paths.size())
+        return;
+
+    // Delete the actual PNG file from disk
+    const std::string& path = prev->paths[frameIdx];
+    std::error_code ec;
+    fs::remove(path, ec);
+    if (ec) {
+        mDropMsg = "Failed to delete: " + fs::path(path).filename().string();
+        return;
+    }
+    mDropMsg = "Deleted: " + fs::path(path).filename().string();
+
+    // Rebuild the preview from the folder (which now has one fewer PNG)
+    rebuildPreview(slotIdx);
+    recomputePreviewRect();
+    initHBFromProfile(slotIdx);
+
+    // Clamp animation frame
+    if (mPreviews[slotIdx].has_value()) {
+        int n = (int)mPreviews[slotIdx]->frames.size();
+        if (mAnimFrame >= n) mAnimFrame = std::max(0, n - 1);
+    } else {
+        mAnimFrame = 0;
+    }
+    mFrameStripScroll = 0;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1121,7 +1251,7 @@ void PlayerCreatorScene::blitScaled(SDL_Surface* dst, SDL_Surface* src, SDL_Rect
     int   ox     = dstRect.x + (dstRect.w - w) / 2;
     int   oy     = dstRect.y + (dstRect.h - h) / 2;
     SDL_Rect dst2 = {ox, oy, w, h};
-    SDL_BlitSurfaceScaled(src, nullptr, dst, &dst2, SDL_SCALEMODE_NEAREST);
+    SDL_BlitSurfaceScaled(src, nullptr, dst, &dst2, SDL_SCALEMODE_PIXELART);
 }
 
 SDL_Rect PlayerCreatorScene::normaliseRect(SDL_Rect r) {

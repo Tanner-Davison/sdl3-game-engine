@@ -198,7 +198,11 @@ void EditorCanvasRenderer::RenderTiles(SDL_Surface* screen, int canvasW, int too
             if (t.ladder) SDL_SetSurfaceColorMod(draw, 120, 220, 255);
             if (t.HasAction()) SDL_SetSurfaceColorMod(draw, 255, 160,  80);
             if (t.hazard) SDL_SetSurfaceColorMod(draw, 255,  80,  80);
-            SDL_BlitSurfaceScaled(draw, nullptr, screen, &dst, SDL_SCALEMODE_LINEAR);
+            // Use LINEAR when downscaling (zoom < 100%) for smooth minification;
+            // PIXELART when at or above source size for crisp pixel edges.
+            SDL_ScaleMode tileScale = (dst.w < draw->w || dst.h < draw->h)
+                                    ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_PIXELART;
+            SDL_BlitSurfaceScaled(draw, nullptr, screen, &dst, tileScale);
             if (t.prop || t.ladder || t.HasAction() || t.hazard)
                 SDL_SetSurfaceColorMod(draw, 255, 255, 255);
         } else {
@@ -584,7 +588,9 @@ void EditorCanvasRenderer::RenderEntities(SDL_Surface* screen, int canvasW, int 
                 int cx = (int)((c.x - camX) * zoom), cy = (int)((c.y - camY) * zoom);
                 if (cx+iconS<=0||cx>=canvasW||cy+iconS<=toolbarH||cy>=winH) continue;
                 SDL_Rect s = frames[0], d = {cx, cy, iconS, iconS};
-                SDL_BlitSurfaceScaled(coinSheet->GetSurface(), &s, screen, &d, SDL_SCALEMODE_LINEAR);
+                SDL_ScaleMode csm = (d.w < s.w || d.h < s.h)
+                                   ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_PIXELART;
+                SDL_BlitSurfaceScaled(coinSheet->GetSurface(), &s, screen, &d, csm);
                 DrawOutline(screen, d, {255,215,0,255});
             }
     }
@@ -596,7 +602,9 @@ void EditorCanvasRenderer::RenderEntities(SDL_Surface* screen, int canvasW, int 
                 int ex = (int)((en.x - camX) * zoom), ey = (int)((en.y - camY) * zoom);
                 if (ex+iconS<=0||ex>=canvasW||ey+iconS<=toolbarH||ey>=winH) continue;
                 SDL_Rect s = frames[0], d = {ex, ey, iconS, iconS};
-                SDL_BlitSurfaceScaled(enemySheet->GetSurface(), &s, screen, &d, SDL_SCALEMODE_LINEAR);
+                SDL_ScaleMode esm = (d.w < s.w || d.h < s.h)
+                                   ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_PIXELART;
+                SDL_BlitSurfaceScaled(enemySheet->GetSurface(), &s, screen, &d, esm);
                 SDL_Color ec = en.antiGravity ? SDL_Color{0,220,220,255} : SDL_Color{255,80,80,255};
                 DrawOutline(screen, d, ec);
                 if (en.antiGravity) {
@@ -661,7 +669,9 @@ void EditorCanvasRenderer::RenderGhost(SDL_Surface* screen, int canvasW, int too
             : ghostSurf;
         if (!drawSurf) drawSurf = ghostSurf;
         SDL_SetSurfaceAlphaMod(drawSurf, 140);
-        SDL_BlitSurfaceScaled(drawSurf, nullptr, screen, &ghostDst, SDL_SCALEMODE_LINEAR);
+        SDL_ScaleMode gsm = (ghostDst.w < drawSurf->w || ghostDst.h < drawSurf->h)
+                          ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_PIXELART;
+        SDL_BlitSurfaceScaled(drawSurf, nullptr, screen, &ghostDst, gsm);
         SDL_SetSurfaceAlphaMod(drawSurf, 255);
     } else {
         DrawRectAlpha(screen, ghostDst, {100, 180, 255, 60});

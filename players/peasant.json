@@ -3,23 +3,23 @@
     "slots": [
         {
             "folderPath": "game_assets/char_sprites/peasant/Idle",
-            "fps": 0.0,
+            "fps": 27.0,
             "hitbox": {
-                "h": 115,
-                "w": 54,
-                "x": 62,
-                "y": 37
+                "h": 80,
+                "w": 55,
+                "x": 31,
+                "y": 42
             },
             "slot": 0
         },
         {
             "folderPath": "game_assets/char_sprites/peasant/Walk",
-            "fps": 32.0,
+            "fps": 37.0,
             "hitbox": {
-                "h": 101,
-                "w": 51,
-                "x": 66,
-                "y": 51
+                "h": 74,
+                "w": 52,
+                "x": 34,
+                "y": 49
             },
             "slot": 1
         },
@@ -27,32 +27,32 @@
             "folderPath": "game_assets/char_sprites/peasant/Crouch",
             "fps": 0.0,
             "hitbox": {
-                "h": 85,
-                "w": 85,
-                "x": 26,
-                "y": 69
+                "h": 37,
+                "w": 82,
+                "x": 11,
+                "y": 82
             },
             "slot": 2
         },
         {
             "folderPath": "game_assets/char_sprites/peasant/Jump",
-            "fps": 0.0,
+            "fps": 8.0,
             "hitbox": {
-                "h": 112,
+                "h": 78,
                 "w": 47,
-                "x": 65,
-                "y": 42
+                "x": 31,
+                "y": 40
             },
             "slot": 3
         },
         {
             "folderPath": "game_assets/char_sprites/peasant/Fall",
-            "fps": 0.0,
+            "fps": 8.0,
             "hitbox": {
-                "h": 116,
-                "w": 53,
-                "x": 57,
-                "y": 32
+                "h": 82,
+                "w": 44,
+                "x": 36,
+                "y": 34
             },
             "slot": 4
         },
@@ -60,10 +60,10 @@
             "folderPath": "game_assets/char_sprites/peasant/Slash",
             "fps": 20.0,
             "hitbox": {
-                "h": 121,
-                "w": 90,
-                "x": 59,
-                "y": 34
+                "h": 79,
+                "w": 81,
+                "x": 35,
+                "y": 42
             },
             "slot": 5
         },
@@ -71,10 +71,10 @@
             "folderPath": "game_assets/char_sprites/peasant/Hurt",
             "fps": 0.0,
             "hitbox": {
-                "h": 105,
-                "w": 48,
-                "x": 65,
-                "y": 52
+                "h": 81,
+                "w": 46,
+                "x": 34,
+                "y": 45
             },
             "slot": 6
         },
@@ -82,14 +82,14 @@
             "folderPath": "game_assets/char_sprites/peasant/Death",
             "fps": 0.0,
             "hitbox": {
-                "h": 102,
+                "h": 69,
                 "w": 75,
-                "x": 45,
-                "y": 42
+                "x": 15,
+                "y": 57
             },
             "slot": 7
         }
     ],
-    "spriteH": 180,
-    "spriteW": 180
+    "spriteH": 160,
+    "spriteW": 120
 }
