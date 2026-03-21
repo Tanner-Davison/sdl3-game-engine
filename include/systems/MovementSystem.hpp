@@ -99,12 +99,15 @@ inline void MovementSystem(entt::registry& reg, float dt, int windowW) {
 
         if (!g.isGrounded) {
             g.velocity = std::min(g.velocity + GRAVITY_FORCE * dt, MAX_FALL_SPEED);
-        } else if (g.direction == GravityDir::DOWN && std::abs(v.dx) > 0.5f) {
-            // Ground-stick: apply a small constant downward nudge while the player
-            // is grounded and moving horizontally.  This pins them to descending
-            // slopes so lateral movement alone can't carry them off the surface
-            // before gravity catches them.  CollisionSystem resets g.velocity to
-            // 0 on any flat-tile or slope snap, so this never accumulates.
+        } else if (g.direction == GravityDir::DOWN) {
+            // Ground-stick: always apply a small constant downward nudge while
+            // grounded, regardless of whether the player is moving or standing
+            // still. This guarantees oTop > 0 in CollisionSystem's floor snap
+            // every frame, so isGrounded is reliably re-set to true even when
+            // floating-point precision would otherwise produce oTop == 0 exactly
+            // and cause a spurious one-frame airborne state (jump anim flash).
+            // CollisionSystem resets g.velocity to 0 on any floor snap, so this
+            // tiny nudge never accumulates into real downward movement.
             g.velocity = std::min(g.velocity + SLOPE_STICK_VELOCITY, MAX_FALL_SPEED);
         }
 
