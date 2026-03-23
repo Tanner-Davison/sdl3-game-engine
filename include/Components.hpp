@@ -164,10 +164,43 @@ struct AttackState {
 
 // ── Tags (marker components — no data) ───────────────────────────────────────
 
-struct PlayerTag {}; // marks the player entity
-struct EnemyTag {};  // marks a live enemy entity
-struct CoinTag {};   // marks a collectible coin
-struct DeadTag {};   // marks a stomped enemy — no longer harmful, acts as a platform
+struct PlayerTag {};      // marks the player entity
+struct EnemyTag {};       // marks a live enemy entity
+struct CoinTag {};        // marks a collectible coin
+struct DeadTag {};        // marks a stomped enemy
+struct FaceRightTag {};   // sprite art faces right by default (flip when moving left)
+
+// Tracks whether an enemy is currently playing its attack animation.
+// Prevents re-triggering the attack every frame during overlap.
+struct EnemyAttackState {
+    bool  attacking = false;
+    float cooldown  = 0.0f;   // seconds remaining before can attack again
+};
+
+// ── Enemy animation data (custom enemies only) ──────────────────────────────
+// Holds non-owning pointers to Hurt/Dead sprite sheets and frames so the
+// collision system can swap the enemy's Renderable when hit or killed.
+// The actual SpriteSheet objects are owned by GameScene::mEnemySpriteSheets.
+struct EnemyAnimData {
+    // Attack animation (played when enemy hits the player)
+    SDL_Texture*          attackSheet = nullptr;
+    std::vector<SDL_Rect> attackFrames;
+    float                 attackFps   = 10.0f;
+    // Hurt animation (played when taking damage)
+    SDL_Texture*          hurtSheet   = nullptr;
+    std::vector<SDL_Rect> hurtFrames;
+    float                 hurtFps     = 8.0f;
+    // Dead animation (played when killed)
+    SDL_Texture*          deadSheet   = nullptr;
+    std::vector<SDL_Rect> deadFrames;
+    float                 deadFps     = 6.0f;
+    // Move animation (to restore after hurt/attack finishes)
+    SDL_Texture*          moveSheet   = nullptr;
+    std::vector<SDL_Rect> moveFrames;
+    float                 moveFps     = 7.0f;
+    // Sprite dimensions
+    int spriteW = 40, spriteH = 40;
+};
 struct TileTag {};   // marks a solid tile — blocks movement
 struct LadderTag {};    // marks a ladder tile — passthrough, player can climb with W/S
 struct PropTag {};      // marks a prop tile — rendered only, no collision, no interaction

@@ -159,6 +159,24 @@ SDL_Surface* EditorSurfaceCache::GetDestroyAnimThumb(const std::string& jsonPath
 }
 
 // ---------------------------------------------------------------------------
+// LoadAndCache — load a PNG and insert into the tile surface cache
+// ---------------------------------------------------------------------------
+
+SDL_Surface* EditorSurfaceCache::LoadAndCache(const std::string& path) {
+    // Already cached?
+    SDL_Surface* existing = FindTileSurface(path);
+    if (existing) return existing;
+
+    SDL_Surface* surf = LoadPNG(path);
+    if (!surf) return nullptr;
+
+    // Store in both the tile cache (for fast lookup) and extra surfaces (for ownership)
+    InsertTileSurface(path, surf);
+    AddExtraTileSurface(surf);
+    return surf;
+}
+
+// ---------------------------------------------------------------------------
 // Bulk cleanup
 // ---------------------------------------------------------------------------
 

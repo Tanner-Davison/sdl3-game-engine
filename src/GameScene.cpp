@@ -1,5 +1,6 @@
 #include "GameScene.hpp"
 #include "AnimatedTile.hpp"
+#include "EnemyProfile.hpp"
 #include "GameConfig.hpp"
 #include "GameEvents.hpp"
 #include "LevelEditorScene.hpp"
@@ -373,6 +374,57 @@ void GameScene::Update(float dt) {
                  mLevelW,
                  mLevelH);
     AnimationSystem(reg, dt);
+
+    // Recover enemies from hurt/attack animation back to move animation
+    {
+        // Hurt recovery: when the non-looping hurt animation reaches its last frame,
+        // immediately snap back to move animation. No waiting for HitFlash.
+        auto hurtView = reg.view<EnemyTag, EnemyAnimData, AnimationState, Renderable>(
+            entt::exclude<DeadTag>);
+        hurtView.each([&](entt::entity e, const EnemyAnimData& ead,
+                          AnimationState& anim, Renderable& r) {
+            // Only act on enemies currently playing a non-looping anim
+            // whose sheet matches the hurt sheet (not attack or dead)
+            if (anim.looping) return;
+            if (r.sheet != ead.hurtSheet) return;
+            if (anim.currentFrame < anim.totalFrames - 1) return;
+            // Hurt anim done — restore move
+            if (ead.moveSheet && !ead.moveFrames.empty()) {
+                r.sheet         = ead.moveSheet;
+                r.frames        = ead.moveFrames;
+                r.renderW       = ead.spriteW;
+                r.renderH       = ead.spriteH;
+                anim.currentFrame = 0;
+                anim.totalFrames  = (int)ead.moveFrames.size();
+                anim.fps          = ead.moveFps;
+                anim.looping      = true;
+            }
+        });
+
+        // Attack recovery: when attack anim finishes, restore move and tick cooldown
+        auto atkView = reg.view<EnemyTag, EnemyAttackState, EnemyAnimData, AnimationState, Renderable>(
+            entt::exclude<DeadTag>);
+        atkView.each([&](entt::entity e, EnemyAttackState& eas, const EnemyAnimData& ead,
+                         AnimationState& anim, Renderable& r) {
+            if (eas.cooldown > 0.0f)
+                eas.cooldown -= dt;
+            if (eas.attacking && !anim.looping &&
+                anim.currentFrame >= anim.totalFrames - 1) {
+                // Attack animation finished — restore move
+                if (ead.moveSheet && !ead.moveFrames.empty()) {
+                    r.sheet         = ead.moveSheet;
+                    r.frames        = ead.moveFrames;
+                    r.renderW       = ead.spriteW;
+                    r.renderH       = ead.spriteH;
+                    anim.currentFrame = 0;
+                    anim.totalFrames  = (int)ead.moveFrames.size();
+                    anim.fps          = ead.moveFps;
+                    anim.looping      = true;
+                }
+                eas.attacking = false;
+            }
+        });
+    }
 
     // Advance animated tile frames
     for (auto& [ent, frames] : tileAnimFrameMap) {
@@ -1333,33 +1385,188 @@ void GameScene::Spawn() {
     }
 
     // ── Spawn enemies ─────────────────────────────────────────────────────────
-    auto spawnEnemy = [&](float x, float y, float speed, bool antiGrav = false) {
-        float dx    = (rand() % 2 == 0) ? speed : -speed;
+    // Cache loaded enemy profile sprite sheets by type name so multiple enemies
+    // of the same type share the same GPU texture.
+    struct EnemyTypeCache {
+        SpriteSheet* idleSheet = nullptr;
+        std::vector<SDL_Rect> idleFrames;
+        SpriteSheet* moveSheet = nullptr;
+        std::vector<SDL_Rect> moveFrames;
+        float moveFps = 7.0f;
+        SpriteSheet* attackSheet = nullptr;
+        std::vector<SDL_Rect> attackFrames;
+        float attackFps = 10.0f;
+        SpriteSheet* hurtSheet = nullptr;
+        std::vector<SDL_Rect> hurtFrames;
+        float hurtFps = 8.0f;
+        SpriteSheet* deadSheet = nullptr;
+        std::vector<SDL_Rect> deadFrames;
+        float deadFps = 6.0f;
+        int spriteW = 40, spriteH = 40;
+        float health = 30.0f;
+    };
+    std::unordered_map<std::string, std::shared_ptr<EnemyTypeCache>> enemyTypeCache;
+    mEnemySpriteSheets.clear();  // clear from previous Spawn (Respawn path)
+
+    auto getEnemyTypeCache = [&](const std::string& typeName) -> std::shared_ptr<EnemyTypeCache> {
+        auto it = enemyTypeCache.find(typeName);
+        if (it != enemyTypeCache.end()) return it->second;
+
+        EnemyProfile prof;
+        if (!LoadEnemyProfile(EnemyProfilePath(typeName), prof))
+            return nullptr;
+
+        auto tc = std::make_shared<EnemyTypeCache>();
+        tc->spriteW = (prof.spriteW > 0) ? prof.spriteW : 40;
+        tc->spriteH = (prof.spriteH > 0) ? prof.spriteH : 40;
+        tc->health  = (prof.health > 0)  ? prof.health  : 30.0f;
+
+        // Load a slot's sprite sheet, store it in mEnemySpriteSheets for lifetime
+        auto loadSlot = [&](EnemyAnimSlot slot) -> std::pair<SpriteSheet*, std::vector<SDL_Rect>> {
+            if (!prof.HasSlot(slot)) return {nullptr, {}};
+            const auto& dir = prof.Slot(slot).folderPath;
+            std::vector<fs::path> pngs;
+            std::error_code ec;
+            if (fs::is_directory(dir, ec) && !ec) {
+                for (const auto& e : fs::directory_iterator(dir, ec))
+                    if (!ec && (e.path().extension() == ".png" || e.path().extension() == ".PNG"))
+                        pngs.push_back(e.path());
+            }
+            if (pngs.empty()) return {nullptr, {}};
+            std::sort(pngs.begin(), pngs.end());
+            std::vector<std::string> pathStrs;
+            for (const auto& p : pngs) pathStrs.push_back(p.string());
+            auto ss = std::make_unique<SpriteSheet>(pathStrs, tc->spriteW, tc->spriteH);
+            ss->CreateTexture(ren);
+            auto frames = ss->GetAnimation("");
+            ss->FreeSurface();
+            SpriteSheet* raw = ss.get();
+            mEnemySpriteSheets.push_back(std::move(ss));
+            return {raw, std::move(frames)};
+        };
+
+        auto [idleSS, idleFr]   = loadSlot(EnemyAnimSlot::Idle);
+        auto [moveSS, moveFr]   = loadSlot(EnemyAnimSlot::Move);
+        auto [attackSS, atkFr]  = loadSlot(EnemyAnimSlot::Attack);
+        auto [hurtSS, hurtFr]   = loadSlot(EnemyAnimSlot::Hurt);
+        auto [deadSS, deadFr]   = loadSlot(EnemyAnimSlot::Dead);
+        tc->idleSheet    = idleSS;
+        tc->idleFrames   = std::move(idleFr);
+        tc->moveSheet    = moveSS;
+        tc->moveFrames   = std::move(moveFr);
+        tc->attackSheet  = attackSS;
+        tc->attackFrames = std::move(atkFr);
+        tc->hurtSheet    = hurtSS;
+        tc->hurtFrames   = std::move(hurtFr);
+        tc->deadSheet    = deadSS;
+        tc->deadFrames   = std::move(deadFr);
+
+        // Read FPS from profile
+        if (prof.HasFps(EnemyAnimSlot::Move))   tc->moveFps   = prof.Slot(EnemyAnimSlot::Move).fps;
+        if (prof.HasFps(EnemyAnimSlot::Attack)) tc->attackFps = prof.Slot(EnemyAnimSlot::Attack).fps;
+        if (prof.HasFps(EnemyAnimSlot::Hurt))   tc->hurtFps   = prof.Slot(EnemyAnimSlot::Hurt).fps;
+        if (prof.HasFps(EnemyAnimSlot::Dead))   tc->deadFps   = prof.Slot(EnemyAnimSlot::Dead).fps;
+
+        // If Move has no frames, fall back to Idle for movement animation
+        if (tc->moveFrames.empty() && !tc->idleFrames.empty()) {
+            tc->moveFrames = tc->idleFrames;
+        }
+        // If Hurt has no frames, fall back to Idle
+        if (tc->hurtFrames.empty() && !tc->idleFrames.empty()) {
+            tc->hurtFrames = tc->idleFrames;
+            tc->hurtSheet  = tc->idleSheet;
+        }
+        // If Dead has no frames, fall back to Hurt then Idle
+        if (tc->deadFrames.empty()) {
+            if (!tc->hurtFrames.empty()) {
+                tc->deadFrames = tc->hurtFrames;
+                tc->deadSheet  = tc->hurtSheet;
+            } else if (!tc->idleFrames.empty()) {
+                tc->deadFrames = tc->idleFrames;
+                tc->deadSheet  = tc->idleSheet;
+            }
+        }
+
+        enemyTypeCache[typeName] = tc;
+        return tc;
+    };
+
+    for (const auto& es : mLevel.enemies) {
+        float speed = es.speed;
+        float dx    = es.startLeft ? -speed : speed;
         auto  enemy = reg.create();
-        reg.emplace<Transform>(enemy, x, y);
-        reg.emplace<PrevTransform>(enemy, x, y); // interpolation
+        reg.emplace<Transform>(enemy, es.x, es.y);
+        reg.emplace<PrevTransform>(enemy, es.x, es.y);
         reg.emplace<Velocity>(enemy, dx, 0.0f, speed);
-        reg.emplace<AnimationState>(enemy, 0, (int)enemyWalkFrames.size(), 0.0f, 7.0f, true);
-        reg.emplace<Renderable>(enemy, enemySheet->GetTexture(), enemyWalkFrames, false);
-        reg.emplace<Collider>(enemy, SLIME_SPRITE_WIDTH, SLIME_SPRITE_HEIGHT);
         reg.emplace<EnemyTag>(enemy);
-        Health eh;
-        eh.current = SLIME_MAX_HEALTH;
-        eh.max     = SLIME_MAX_HEALTH;
-        reg.emplace<Health>(enemy, eh);
-        if (antiGrav) {
+
+        // Try loading custom enemy profile
+        bool usedProfile = false;
+        if (!es.enemyType.empty()) {
+            auto tc = getEnemyTypeCache(es.enemyType);
+            if (tc && (!tc->moveFrames.empty() || !tc->idleFrames.empty())) {
+                // Use Move frames for walking, fall back to Idle
+                const auto& frames = !tc->moveFrames.empty() ? tc->moveFrames : tc->idleFrames;
+                SDL_Texture* tex = tc->moveSheet ? tc->moveSheet->GetTexture()
+                                 : tc->idleSheet ? tc->idleSheet->GetTexture()
+                                 : nullptr;
+                if (tex) {
+                    float fps = 7.0f; // TODO: use profile Move slot fps
+                    reg.emplace<AnimationState>(enemy, 0, (int)frames.size(), 0.0f, fps, true);
+                    reg.emplace<Renderable>(enemy, tex, frames, false,
+                                            tc->spriteW, tc->spriteH);
+                    reg.emplace<Collider>(enemy, tc->spriteW, tc->spriteH);
+                    Health eh;
+                    eh.current = tc->health;
+                    eh.max     = tc->health;
+                    reg.emplace<Health>(enemy, eh);
+                    reg.emplace<FaceRightTag>(enemy);
+
+                    // Build EnemyAnimData so collision system can swap anims
+                    EnemyAnimData ead;
+                    ead.moveSheet    = tex;
+                    ead.moveFrames   = frames;
+                    ead.moveFps      = fps;
+                    ead.attackSheet  = tc->attackSheet ? tc->attackSheet->GetTexture() : nullptr;
+                    ead.attackFrames = tc->attackFrames;
+                    ead.attackFps    = tc->attackFps;
+                    ead.hurtSheet    = tc->hurtSheet ? tc->hurtSheet->GetTexture() : tex;
+                    ead.hurtFrames   = tc->hurtFrames.empty() ? frames : tc->hurtFrames;
+                    ead.hurtFps      = tc->hurtFps;
+                    ead.deadSheet    = tc->deadSheet ? tc->deadSheet->GetTexture() : tex;
+                    ead.deadFrames   = tc->deadFrames.empty() ? frames : tc->deadFrames;
+                    ead.deadFps      = tc->deadFps;
+                    ead.spriteW      = tc->spriteW;
+                    ead.spriteH      = tc->spriteH;
+                    reg.emplace<EnemyAnimData>(enemy, std::move(ead));
+                    reg.emplace<EnemyAttackState>(enemy);
+
+                    usedProfile = true;
+                }
+            }
+        }
+
+        // Fallback: generic slime
+        if (!usedProfile) {
+            reg.emplace<AnimationState>(enemy, 0, (int)enemyWalkFrames.size(), 0.0f, 7.0f, true);
+            reg.emplace<Renderable>(enemy, enemySheet->GetTexture(), enemyWalkFrames, false);
+            reg.emplace<Collider>(enemy, SLIME_SPRITE_WIDTH, SLIME_SPRITE_HEIGHT);
+            Health eh;
+            eh.current = SLIME_MAX_HEALTH;
+            eh.max     = SLIME_MAX_HEALTH;
+            reg.emplace<Health>(enemy, eh);
+        }
+
+        if (es.antiGravity) {
             reg.emplace<FloatTag>(enemy);
             FloatState fs;
-            fs.baseY    = y;
+            fs.baseY    = es.y;
             fs.bobAmp   = 5.0f + (rand() % 40) * 0.1f;
             fs.bobSpeed = 1.6f + (rand() % 60) * 0.01f;
             fs.bobPhase = (rand() % 628) * 0.01f;
             reg.emplace<FloatState>(enemy, fs);
         }
-    };
-
-    for (const auto& e : mLevel.enemies)
-        spawnEnemy(e.x, e.y, e.speed, e.antiGravity);
+    }
 
     // Build the pre-sorted tile render list used by RenderSystem Pass 1.
     // Tile entity IDs are stable for the lifetime of Spawn() -- they are never

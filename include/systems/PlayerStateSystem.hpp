@@ -148,11 +148,14 @@ inline void PlayerStateSystem(entt::registry& reg) {
             frames  = &set.idle;
             fps     = resolveFps(set.idleFps, 12.0f);
             id      = AnimationID::IDLE;
-        } else if (canHurt && inv.isInvincible
+        } else if (canHurt && inv.isInvincible && inv.remaining > 0.5f
                    && !(reg.try_get<AttackState>(entity) && reg.get<AttackState>(entity).isAttacking)
                    && !(anim.currentAnim == AnimationID::HURT
                         && !anim.looping
                         && anim.currentFrame >= anim.totalFrames - 1)) {
+            // Only lock into hurt animation if invincibility is long (>0.5s).
+            // Short invincibility (enemy contact) just flashes red briefly
+            // without taking away player control.
             frames  = &set.hurt;
             fps     = resolveFps(set.hurtFps, 12.0f);
             looping = false;

@@ -91,18 +91,58 @@ inline CollisionResult CollisionSystem(entt::registry& reg, float dt, int window
                 result.enemiesStomped++;
                 g.velocity   = -JUMP_FORCE * 0.5f;
                 g.isGrounded = false;
-            } else if (!inv.isInvincible && aabb(et, ec)) {
+                return; // stomped — skip push-out
+            }
+
+            if (!inv.isInvincible && aabb(et, ec)) {
                 health.current -= PLAYER_HIT_DAMAGE;
                 if (health.current <= 0.0f) {
                     health.current    = 0.0f;
                     result.playerDied = true;
                 }
                 inv.isInvincible  = true;
-                inv.remaining     = inv.duration;
-                g.active          = false;
-                g.velocity        = 0.0f;
-                g.isGrounded      = false;
-                g.punishmentTimer = GRAVITY_DURATION;
+                inv.remaining     = 0.15f; // just enough to prevent same-frame double-hit
+
+                // Player knockback: push player away from enemy
+                {
+                    float playerCX = pt.x + pw * 0.5f;
+                    float enemyCX  = et.x + ec.w * 0.5f;
+                    float kbDir    = (playerCX >= enemyCX) ? 1.0f : -1.0f;
+                    pt.x += kbDir * 24.0f;
+                }
+
+                // Play enemy attack animation
+                auto* eas = reg.try_get<EnemyAttackState>(enemy);
+                auto* ead = reg.try_get<EnemyAnimData>(enemy);
+                if (eas && ead && !eas->attacking &&
+                    ead->attackSheet && !ead->attackFrames.empty()) {
+                    auto& r    = reg.get<Renderable>(enemy);
+                    auto& anim = reg.get<AnimationState>(enemy);
+                    r.sheet         = ead->attackSheet;
+                    r.frames        = ead->attackFrames;
+                    r.renderW       = ead->spriteW;
+                    r.renderH       = ead->spriteH;
+                    anim.currentFrame = 0;
+                    anim.totalFrames  = (int)ead->attackFrames.size();
+                    anim.fps          = ead->attackFps;
+                    anim.looping      = false;
+                    eas->attacking    = true;
+                    eas->cooldown     = 0.8f; // seconds before can attack again
+                }
+            }
+
+            // -- Solid enemy push-out (horizontal only) --
+            // Only push left/right so the player can't walk through enemies.
+            // Never push vertically — that causes the teleport-to-top glitch.
+            // Stomping and landing-on-top are handled separately.
+            if (aabb(et, ec)) {
+                float oLeft  = (pt.x + pw) - et.x;
+                float oRight = (et.x + ec.w) - pt.x;
+                if (oLeft <= 0 || oRight <= 0) return;
+                if (oLeft < oRight)
+                    pt.x = et.x - pw;      // push left
+                else
+                    pt.x = et.x + ec.w;    // push right
             }
         });
 
@@ -548,6 +588,38 @@ inline CollisionResult CollisionSystem(entt::registry& reg, float dt, int window
                     return;
                 }
                 eh->current -= SLASH_DAMAGE;
+
+                // Knockback: small positional nudge away from the player.
+                // Only moves position — does NOT override velocity, so the
+                // enemy immediately resumes walking at its normal speed.
+                {
+                    float playerCX = pt.x + pw * 0.5f;
+                    float enemyCX  = et.x + ec.w * 0.5f;
+                    float kbDir    = (enemyCX >= playerCX) ? 1.0f : -1.0f;
+                    if (auto* et2 = reg.try_get<Transform>(enemy))
+                        et2->x += kbDir * 24.0f;
+                }
+
+                // Flash red + stun (AI pauses during this window so knockback sticks)
+                if (!reg.all_of<HitFlash>(enemy))
+                    reg.emplace<HitFlash>(enemy, 0.2f, 0.2f);
+                else
+                    reg.get<HitFlash>(enemy).timer = 0.2f;
+
+                // Swap to hurt animation if the enemy has EnemyAnimData
+                if (auto* ead = reg.try_get<EnemyAnimData>(enemy);
+                    ead && ead->hurtSheet && !ead->hurtFrames.empty()) {
+                    auto& r    = reg.get<Renderable>(enemy);
+                    auto& anim = reg.get<AnimationState>(enemy);
+                    r.sheet         = ead->hurtSheet;
+                    r.frames        = ead->hurtFrames;
+                    r.renderW       = ead->spriteW;
+                    r.renderH       = ead->spriteH;
+                    anim.currentFrame = 0;
+                    anim.totalFrames  = (int)ead->hurtFrames.size();
+                    anim.fps          = ead->hurtFps;
+                    anim.looping      = false;
+                }
                 if (eh->current <= 0.0f) {
                     eh->current = 0.0f;
                     toKill.push_back(enemy);
@@ -579,27 +651,43 @@ inline CollisionResult CollisionSystem(entt::registry& reg, float dt, int window
             auto& v = reg.get<Velocity>(e);
             v.dx = v.dy = 0.0f;
         }
-        // Transition to dead visual state using the named "slimeDead" frame
-        // from the enemy's current spritesheet instead of hard-coded pixel coords.
-        // Falls back to the legacy rect if the frame lookup fails (e.g. custom
-        // enemy spritesheets that don't have a slimeDead entry).
+        // Transition to dead visual state.
+        // Custom enemies (FaceRightTag): freeze on current frame, shrink collider
+        // Legacy slime: swap to the flat slimeDead sprite rect
         if (reg.all_of<Renderable, AnimationState>(e)) {
             auto& r    = reg.get<Renderable>(e);
             auto& anim = reg.get<AnimationState>(e);
-            // Try to find a "slimeDead" or "Dead" rect at offset (0,112) 59x12.
-            // We still use the same source coords since the enemy spritesheet
-            // layout hasn't changed, but now it's a named constant rather than
-            // a magic literal so it's easy to update if the sheet changes.
-            static constexpr SDL_Rect SLIME_DEAD_RECT = {0, 112, 59, 12};
-            r.frames          = {SLIME_DEAD_RECT};
-            anim.currentFrame = 0;
-            anim.totalFrames  = 1;
-            anim.looping      = false;
+            if (auto* ead = reg.try_get<EnemyAnimData>(e);
+                ead && ead->deadSheet && !ead->deadFrames.empty()) {
+                // Custom enemy: swap to death animation
+                r.sheet         = ead->deadSheet;
+                r.frames        = ead->deadFrames;
+                r.renderW       = ead->spriteW;
+                r.renderH       = ead->spriteH;
+                anim.currentFrame = 0;
+                anim.totalFrames  = (int)ead->deadFrames.size();
+                anim.fps          = ead->deadFps;
+                anim.looping      = false;
+            } else if (reg.all_of<FaceRightTag>(e)) {
+                // Custom enemy without dead frames: freeze
+                anim.looping = false;
+                anim.currentFrame = std::min(anim.currentFrame, anim.totalFrames - 1);
+            } else {
+                // Legacy slime: swap to the flat dead sprite
+                static constexpr SDL_Rect SLIME_DEAD_RECT = {0, 112, 59, 12};
+                r.frames          = {SLIME_DEAD_RECT};
+                anim.currentFrame = 0;
+                anim.totalFrames  = 1;
+                anim.looping      = false;
+            }
         }
         if (reg.all_of<Collider>(e)) {
-            auto& col = reg.get<Collider>(e);
-            col.w = 59;
-            col.h = 12;
+            if (!reg.all_of<FaceRightTag>(e)) {
+                // Only shrink collider for legacy slime
+                auto& col = reg.get<Collider>(e);
+                col.w = 59;
+                col.h = 12;
+            }
         }
         reg.emplace<DeadTag>(e);
     }

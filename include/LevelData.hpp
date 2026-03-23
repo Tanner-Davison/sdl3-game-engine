@@ -13,7 +13,9 @@ struct CoinSpawn {
 struct EnemySpawn {
     float x, y;
     float speed;
-    bool  antiGravity = false;
+    bool        antiGravity = false;
+    bool        startLeft   = false; // true = starts moving left, false = starts moving right
+    std::string enemyType;           // enemy profile name (empty = legacy generic slime)
 };
 
 struct PlayerSpawn {

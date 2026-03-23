@@ -7,6 +7,7 @@
 #include "EditorCanvasRenderer.hpp"
 #include "EditorToolbar.hpp"
 #include "EditorUIRenderer.hpp"
+#include "EnemyProfile.hpp"
 #include "Image.hpp"
 #include "LevelData.hpp"
 #include "LevelSerializer.hpp"
@@ -250,7 +251,16 @@ class LevelEditorScene : public Scene {
     int HitEnemy(int sx, int sy) const {
         auto [wx, wy] = ScreenToWorld(sx, sy);
         for (int i = 0; i < (int)mLevel.enemies.size(); i++) {
-            SDL_Rect r = {(int)mLevel.enemies[i].x, (int)mLevel.enemies[i].y, GRID, GRID};
+            const auto& en = mLevel.enemies[i];
+            int ew = GRID, eh = GRID;
+            if (!en.enemyType.empty()) {
+                EnemyProfile prof;
+                if (LoadEnemyProfile("enemies/" + en.enemyType + ".json", prof)) {
+                    ew = (prof.spriteW > 0) ? prof.spriteW : GRID;
+                    eh = (prof.spriteH > 0) ? prof.spriteH : GRID;
+                }
+            }
+            SDL_Rect r = {(int)en.x, (int)en.y, ew, eh};
             if (HitTest(r, wx, wy))
                 return i;
         }

@@ -23,9 +23,14 @@ inline bool SaveLevel(const Level& level, const std::string& path) {
         j["coins"].push_back({{"x", c.x}, {"y", c.y}});
 
     j["enemies"] = json::array();
-    for (const auto& e : level.enemies)
-        j["enemies"].push_back({{"x", e.x}, {"y", e.y}, {"speed", e.speed},
-                                  {"antiGravity", e.antiGravity}});
+    for (const auto& e : level.enemies) {
+        json ej = {{"x", e.x}, {"y", e.y}, {"speed", e.speed},
+                   {"antiGravity", e.antiGravity},
+                   {"startLeft", e.startLeft}};
+        if (!e.enemyType.empty())
+            ej["enemyType"] = e.enemyType;
+        j["enemies"].push_back(std::move(ej));
+    }
 
     j["tiles"] = json::array();
     for (const auto& t : level.tiles) {
@@ -120,10 +125,16 @@ inline bool LoadLevel(const std::string& path, Level& out) {
         out.coins.push_back({c.value("x", 0.0f), c.value("y", 0.0f)});
 
     out.enemies.clear();
-    for (const auto& e : j.value("enemies", json::array()))
-        out.enemies.push_back(
-            {e.value("x", 0.0f), e.value("y", 0.0f), e.value("speed", 120.0f),
-             e.value("antiGravity", false)});
+    for (const auto& e : j.value("enemies", json::array())) {
+        EnemySpawn es;
+        es.x           = e.value("x", 0.0f);
+        es.y           = e.value("y", 0.0f);
+        es.speed       = e.value("speed", 120.0f);
+        es.antiGravity = e.value("antiGravity", false);
+        es.startLeft   = e.value("startLeft", false);
+        es.enemyType   = e.value("enemyType", std::string{});
+        out.enemies.push_back(std::move(es));
+    }
 
     out.tiles.clear();
     for (const auto& t : j.value("tiles", json::array())) {

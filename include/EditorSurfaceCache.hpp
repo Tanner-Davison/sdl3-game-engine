@@ -49,6 +49,11 @@ class EditorSurfaceCache {
     bool         HasTileSurface(const std::string& path) const;
     void         ClearTileSurfaceCache();
 
+    // Load a PNG from disk, insert into the tile surface cache, and return it.
+    // Returns nullptr on failure. Subsequent calls with the same path return
+    // the cached surface without hitting disk.
+    SDL_Surface* LoadAndCache(const std::string& path);
+
     // ── Extra tile surfaces ───────────────────────────────────────────────────
     // Surfaces loaded for level tiles from subdirs not in the current palette.
     // Owned here, freed on clear/destruction.

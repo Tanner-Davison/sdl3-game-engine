@@ -92,6 +92,8 @@ class GameScene : public Scene {
     std::unique_ptr<SpriteSheet> knightSlashSheet;
     std::unique_ptr<SpriteSheet> enemySheet;
     std::unique_ptr<SpriteSheet> coinSheet;
+    // Custom enemy type sprite sheets — kept alive so GPU textures remain valid
+    std::vector<std::unique_ptr<SpriteSheet>> mEnemySpriteSheets;
     std::vector<SDL_Texture*>    tileScaledTextures; // owned; freed on Unload only
     // Tile texture cache: key = "path|WxH|rROT" → non-owning ptr into tileScaledTextures.
     // Populated in Spawn(), never cleared between Respawn() calls — only in Unload().

@@ -1,5 +1,6 @@
 #include "EditorCanvasRenderer.hpp"
 #include "AnimatedTile.hpp"
+#include "EnemyProfile.hpp"
 #include "tools/PlacementTools.hpp"
 #include <SDL3_image/SDL_image.h>
 #include <algorithm>
@@ -114,7 +115,7 @@ void EditorCanvasRenderer::Render(
         }
     }
 
-    RenderEntities(screen, canvasW, toolbarH, winH, level, camera, coinSheet, enemySheet, grid);
+    RenderEntities(screen, canvasW, toolbarH, winH, level, camera, cache, coinSheet, enemySheet, grid);
     RenderPlayerMarker(screen, level, camera);
 
     // ── Tool overlay (Select marquee, Resize/Hitbox handles, etc.) ───────────
@@ -573,6 +574,7 @@ void EditorCanvasRenderer::RenderMovPlatPopup(SDL_Surface* screen, int canvasW,
 void EditorCanvasRenderer::RenderEntities(SDL_Surface* screen, int canvasW, int toolbarH,
                                           int winH, const Level& level,
                                           const EditorCamera& cam,
+                                          EditorSurfaceCache& cache,
                                           SpriteSheet* coinSheet, SpriteSheet* enemySheet,
                                           int grid)
 {
@@ -595,24 +597,96 @@ void EditorCanvasRenderer::RenderEntities(SDL_Surface* screen, int canvasW, int 
             }
     }
 
-    if (enemySheet) {
-        auto frames = enemySheet->GetAnimation("slimeWalk");
-        if (!frames.empty())
-            for (const auto& en : level.enemies) {
-                int ex = (int)((en.x - camX) * zoom), ey = (int)((en.y - camY) * zoom);
-                if (ex+iconS<=0||ex>=canvasW||ey+iconS<=toolbarH||ey>=winH) continue;
-                SDL_Rect s = frames[0], d = {ex, ey, iconS, iconS};
-                SDL_ScaleMode esm = (d.w < s.w || d.h < s.h)
-                                   ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_PIXELART;
-                SDL_BlitSurfaceScaled(enemySheet->GetSurface(), &s, screen, &d, esm);
-                SDL_Color ec = en.antiGravity ? SDL_Color{0,220,220,255} : SDL_Color{255,80,80,255};
-                DrawOutline(screen, d, ec);
-                if (en.antiGravity) {
-                    DrawRect(screen, {ex+iconS/2-4, ey-10, 8, 8}, {0,200,220,220});
-                    Text fb("F", {255,255,255,255}, ex+iconS/2-3, ey-11, 8);
-                    fb.RenderToSurface(screen);
+    // Enemies: render each enemy with its profile sprite if available,
+    // otherwise fall back to the generic slime sheet.
+    // Cache loaded profile data so we only parse JSON once per type per frame.
+    struct EnemyRenderInfo {
+        std::string previewPath;
+        int spriteW = 40, spriteH = 40;
+    };
+    static std::unordered_map<std::string, EnemyRenderInfo> sEnemyRenderCache;
+
+    std::vector<SDL_Rect> slimeFrames;
+    if (enemySheet)
+        slimeFrames = enemySheet->GetAnimation("slimeWalk");
+
+    for (const auto& en : level.enemies) {
+        // Determine render size: use profile spriteW/H if available
+        int enW = 40, enH = 40;  // default slime size
+        std::string previewImg;
+
+        if (!en.enemyType.empty()) {
+            auto cacheIt = sEnemyRenderCache.find(en.enemyType);
+            if (cacheIt != sEnemyRenderCache.end()) {
+                enW = cacheIt->second.spriteW;
+                enH = cacheIt->second.spriteH;
+                previewImg = cacheIt->second.previewPath;
+            } else {
+                EnemyProfile prof;
+                if (LoadEnemyProfile("enemies/" + en.enemyType + ".json", prof)) {
+                    enW = (prof.spriteW > 0) ? prof.spriteW : 40;
+                    enH = (prof.spriteH > 0) ? prof.spriteH : 40;
+                    previewImg = EnemyPreviewImagePath(prof);
+                    sEnemyRenderCache[en.enemyType] = {previewImg, enW, enH};
                 }
             }
+        }
+
+        int drawW = std::max(4, (int)(enW * zoom));
+        int drawH = std::max(4, (int)(enH * zoom));
+        int ex = (int)((en.x - camX) * zoom);
+        int ey = (int)((en.y - camY) * zoom);
+
+        // Culling with actual size
+        if (ex + drawW <= 0 || ex >= canvasW || ey + drawH <= toolbarH || ey >= winH)
+            continue;
+
+        SDL_Rect d = {ex, ey, drawW, drawH};
+        bool rendered = false;
+
+        // Try to render using the enemy's profile sprite
+        if (!previewImg.empty()) {
+            SDL_Surface* thumb = cache.LoadAndCache(previewImg);
+            if (thumb) {
+                SDL_ScaleMode esm = (d.w < thumb->w || d.h < thumb->h)
+                                   ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_PIXELART;
+                SDL_BlitSurfaceScaled(thumb, nullptr, screen, &d, esm);
+                rendered = true;
+            }
+        }
+
+        // Fallback: generic slime
+        if (!rendered && enemySheet && !slimeFrames.empty()) {
+            SDL_Rect s = slimeFrames[0];
+            SDL_ScaleMode esm = (d.w < s.w || d.h < s.h)
+                               ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_PIXELART;
+            SDL_BlitSurfaceScaled(enemySheet->GetSurface(), &s, screen, &d, esm);
+        }
+
+        SDL_Color ec = en.antiGravity ? SDL_Color{0,220,220,255} : SDL_Color{255,80,80,255};
+        DrawOutline(screen, d, ec);
+
+        // Speed + direction badge (bottom-left)
+        {
+            std::string dir = en.startLeft ? "<" : ">";
+            std::string spdStr = dir + std::to_string((int)en.speed);
+            BlitBadge(screen, cache.GetBadge(spdStr, {255, 200, 120, 255}),
+                      ex + 2, ey + drawH - 12);
+        }
+
+        // Enemy type name badge (above sprite)
+        if (!en.enemyType.empty()) {
+            std::string typeName = en.enemyType;
+            if ((int)typeName.size() > 8) typeName = typeName.substr(0, 6) + "..";
+            BlitBadge(screen, cache.GetBadge(typeName, {255, 160, 100, 255}),
+                      ex + 2, ey - 12);
+        }
+
+        if (en.antiGravity) {
+            DrawRect(screen, {ex+drawW/2-4, ey-10, 8, 8}, {0,200,220,220});
+            Text fb("F", {255,255,255,255}, ex+drawW/2-3, ey-11, 8);
+            fb.RenderToSurface(screen);
+        }
     }
 }
 

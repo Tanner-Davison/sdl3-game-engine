@@ -39,22 +39,80 @@ class CoinTool final : public EditorTool {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// EnemyTool
+// EnemyTool — places enemies with type selection and per-instance speed control
+//
+// Usage:
+//   LClick       = place enemy of selected type at cursor
+//   RClick enemy = open speed edit popup for that enemy
+//   Scroll       = adjust placement speed (+/- 10 px/s)
+//   Picker panel = shown at top of canvas when tool is active
 // ═══════════════════════════════════════════════════════════════════════════════
 class EnemyTool final : public EditorTool {
   public:
     [[nodiscard]] const char* Name() const override { return "Enemy"; }
 
-    ToolResult OnMouseDown(EditorToolContext& ctx, int mx, int my,
-                           Uint8 button, SDL_Keymod /*mods*/) override {
-        if (button != SDL_BUTTON_LEFT) return ToolResult::Ignored;
-        if (my < ctx.ToolbarH() || mx >= ctx.CanvasW()) return ToolResult::Ignored;
-        auto [sx, sy] = ctx.SnapToGrid(mx, my);
-        ctx.level.enemies.push_back(
-            {static_cast<float>(sx), static_cast<float>(sy), 120.0f});
-        ctx.SetStatus("Enemy at " + std::to_string(sx) + "," + std::to_string(sy));
-        return ToolResult::Consumed;
+    // ── Placement state (set by orchestrator or picker clicks) ────────────────
+    float       placementSpeed = 120.0f;   // speed for the NEXT placed enemy
+    std::string selectedType;              // enemy profile name (empty = legacy slime)
+    bool        placementStartLeft = false; // direction toggle for next placed enemy
+
+    // ── Enemy type picker entries (refreshed on activate) ────────────────────
+    struct PickerEntry {
+        std::string name;            // profile name
+        std::string previewPath;     // first PNG for thumbnail (may be empty)
+        SDL_Rect    rect{};          // screen rect (computed in RenderOverlay)
+    };
+    std::vector<PickerEntry> pickerEntries;
+    int  pickerScroll  = 0;
+    bool pickerVisible = true;       // shown at top when Enemy tool is active
+
+    // ── Speed edit popup (RClick on placed enemy) ────────────────────────────
+    bool        speedPopupOpen   = false;
+    int         speedPopupIdx    = -1;    // index into level.enemies
+    bool        speedInputActive = false;
+    std::string speedStr;
+    SDL_Rect    speedPopupRect{};
+
+    void OnActivate(EditorToolContext& ctx) override {
+        placementSpeed = 120.0f;
+        selectedType.clear();
+        placementStartLeft = false;
+        speedPopupOpen   = false;
+        speedInputActive = false;
+        pickerScroll     = 0;
+        pickerVisible    = true;
+        RefreshPicker();
     }
+
+    void OnDeactivate(EditorToolContext& ctx) override {
+        if (speedInputActive) {
+            CommitSpeedEdit(ctx);
+            SDL_StopTextInput(ctx.sdlWindow);
+        }
+        speedPopupOpen   = false;
+        speedInputActive = false;
+    }
+
+    void RefreshPicker();
+    void CommitSpeedEdit(EditorToolContext& ctx);
+
+    ToolResult OnMouseDown(EditorToolContext& ctx, int mx, int my,
+                           Uint8 button, SDL_Keymod mods) override;
+
+    ToolResult OnMouseUp(EditorToolContext& ctx, int mx, int my,
+                         Uint8 button, SDL_Keymod mods) override {
+        (void)ctx; (void)mx; (void)my; (void)button; (void)mods;
+        return ToolResult::Ignored;
+    }
+
+    ToolResult OnKeyDown(EditorToolContext& ctx, SDL_Keycode key,
+                         SDL_Keymod mods) override;
+
+    ToolResult OnScroll(EditorToolContext& ctx, float wheelY,
+                        int mx, int my, SDL_Keymod mods) override;
+
+    void RenderOverlay(EditorToolContext& ctx, SDL_Surface* screen,
+                       int canvasW) override;
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════

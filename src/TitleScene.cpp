@@ -1,4 +1,5 @@
 #include "TitleScene.hpp"
+#include "EnemyCreatorScene.hpp"
 #include "GameScene.hpp"
 #include "LevelEditorScene.hpp"
 #include "PlayerCreatorScene.hpp"
@@ -25,6 +26,10 @@ std::unique_ptr<Scene> TitleScene::NextScene() {
     if (openTileAnimCreator) {
         openTileAnimCreator = false;
         return std::make_unique<TileAnimCreatorScene>();
+    }
+    if (openEnemyCreator) {
+        openEnemyCreator = false;
+        return std::make_unique<EnemyCreatorScene>();
     }
     return nullptr;
 }

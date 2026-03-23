@@ -52,7 +52,9 @@ set(SOURCES
     src/Text.cpp
     src/SpriteSheet.cpp
     src/PlayerCreatorScene.cpp
+    src/EnemyCreatorScene.cpp
     src/TileAnimCreatorScene.cpp
+    src/tools/EnemyTool.cpp
 )
 
 add_executable(${PROJECT_NAME} ${SOURCES})

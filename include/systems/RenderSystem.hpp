@@ -138,12 +138,17 @@ inline void RenderSystem(entt::registry& reg, SDL_Renderer* renderer,
         auto* g    = reg.try_get<GravityState>(entity);
         auto* inv  = reg.try_get<InvincibilityTimer>(entity);
         auto* hz   = reg.try_get<HazardState>(entity);
+        auto* hf   = reg.try_get<HitFlash>(entity);
         auto* col  = reg.try_get<Collider>(entity);
         auto* roff = reg.try_get<RenderOffset>(entity);
 
-        // Colour mod for invincibility / hazard flash
+        // Colour mod for invincibility / hazard / hit flash
         bool colorModded = false;
-        if (inv && inv->isInvincible && (int)(inv->remaining * 10.0f) % 2 == 0) {
+        if (hf && hf->timer > 0.0f) {
+            // Enemy hit flash — bright red tint
+            SDL_SetTextureColorMod(r.sheet, 255, 60, 60);
+            colorModded = true;
+        } else if (inv && inv->isInvincible && (int)(inv->remaining * 10.0f) % 2 == 0) {
             SDL_SetTextureColorMod(r.sheet, 255, 0, 0);
             colorModded = true;
         } else if (hz && hz->active && (int)(hz->flashTimer * 8.0f) % 2 == 0) {

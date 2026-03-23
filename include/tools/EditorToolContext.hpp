@@ -12,6 +12,7 @@
 
 #include "EditorCamera.hpp"
 #include "EditorSurfaceCache.hpp"
+#include "EnemyProfile.hpp"
 #include "LevelData.hpp"
 #include "Text.hpp"
 #include <SDL3/SDL.h>
@@ -93,8 +94,17 @@ struct EditorToolContext {
     [[nodiscard]] int HitEnemy(int sx, int sy) const {
         auto [wx, wy] = ScreenToWorld(sx, sy);
         for (int i = 0; i < static_cast<int>(level.enemies.size()); ++i) {
-            SDL_Rect r = {static_cast<int>(level.enemies[i].x),
-                          static_cast<int>(level.enemies[i].y), grid, grid};
+            const auto& en = level.enemies[i];
+            // Use profile sprite size if available, otherwise grid
+            int ew = grid, eh = grid;
+            if (!en.enemyType.empty()) {
+                EnemyProfile prof;
+                if (LoadEnemyProfile("enemies/" + en.enemyType + ".json", prof)) {
+                    ew = (prof.spriteW > 0) ? prof.spriteW : grid;
+                    eh = (prof.spriteH > 0) ? prof.spriteH : grid;
+                }
+            }
+            SDL_Rect r = {static_cast<int>(en.x), static_cast<int>(en.y), ew, eh};
             if (HitTest(r, wx, wy)) return i;
         }
         return -1;

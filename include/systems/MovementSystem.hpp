@@ -141,9 +141,40 @@ inline void MovementSystem(entt::registry& reg, float dt, int windowW) {
     // Enemies only turn around on solid tiles — exclude props (visual-only, no collision)
     // and action tiles (slash-triggered; they may have TileTag while still present).
     auto tileView  = reg.view<TileTag, Transform, Collider>(entt::exclude<PropTag, ActionTag>);
+    // Find player position for enemy AI targeting
+    float playerX = 0.0f, playerW = 0.0f;
+    {
+        auto pv = reg.view<PlayerTag, Transform, Collider>();
+        pv.each([&](const Transform& pt, const Collider& pc) {
+            playerX = pt.x;
+            playerW = (float)pc.w;
+        });
+    }
+
     auto enemyView = reg.view<EnemyTag, Transform, Velocity, Collider, Renderable>(
         entt::exclude<DeadTag>);
-    enemyView.each([&](Transform& t, Velocity& v, const Collider& c, Renderable& r) {
+    enemyView.each([&](entt::entity ent, Transform& t, Velocity& v, const Collider& c, Renderable& r) {
+        // Enemy AI: if within aggro range, walk toward the player.
+        // Skip chasing while stunned (HitFlash active = just got hit).
+        bool stunned = false;
+        if (auto* hf = reg.try_get<HitFlash>(ent))
+            stunned = hf->timer > 0.0f;
+
+        if (!stunned) {
+            constexpr float AGGRO_RANGE = 300.0f;
+            float enemyCX  = t.x + c.w * 0.5f;
+            float playerCX = playerX + playerW * 0.5f;
+            float dist     = std::abs(enemyCX - playerCX);
+            if (dist < AGGRO_RANGE && dist > 4.0f) {
+                float dir = (playerCX > enemyCX) ? 1.0f : -1.0f;
+                v.dx = dir * v.speed;
+            }
+        } else {
+            // Stunned: decelerate to a stop so knockback isn't fought
+            v.dx *= 0.85f;
+            if (std::abs(v.dx) < 1.0f) v.dx = 0.0f;
+        }
+
         t.x += v.dx * dt;
 
         if (t.x < 0.0f) {
@@ -172,6 +203,11 @@ inline void MovementSystem(entt::registry& reg, float dt, int windowW) {
             }
         });
 
-        r.flipH = v.dx > 0.0f;
+        // Custom enemy sprites face right by default (FaceRightTag);
+        // legacy slime sprites face left by default.
+        if (reg.all_of<FaceRightTag>(ent))
+            r.flipH = v.dx < 0.0f;   // flip when moving left
+        else
+            r.flipH = v.dx > 0.0f;   // flip when moving right (legacy slime)
     });
 }

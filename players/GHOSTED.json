@@ -16,7 +16,7 @@
             "folderPath": "game_assets/char_sprites/GHOSTED/Walk",
             "fps": 26.0,
             "hitbox": {
-                "h": 79,
+                "h": 65,
                 "w": 47,
                 "x": 73,
                 "y": 67
@@ -27,7 +27,7 @@
             "folderPath": "game_assets/char_sprites/GHOSTED/Crouch",
             "fps": 0.0,
             "hitbox": {
-                "h": 79,
+                "h": 56,
                 "w": 55,
                 "x": 70,
                 "y": 63
@@ -38,10 +38,10 @@
             "folderPath": "game_assets/char_sprites/GHOSTED/Jump",
             "fps": 36.0,
             "hitbox": {
-                "h": 93,
-                "w": 52,
-                "x": 58,
-                "y": 37
+                "h": 63,
+                "w": 67,
+                "x": 40,
+                "y": 55
             },
             "slot": 3
         },
@@ -49,10 +49,10 @@
             "folderPath": "game_assets/char_sprites/GHOSTED/Fall",
             "fps": 13.0,
             "hitbox": {
-                "h": 84,
-                "w": 66,
+                "h": 63,
+                "w": 67,
                 "x": 38,
-                "y": 43
+                "y": 61
             },
             "slot": 4
         },
@@ -60,10 +60,10 @@
             "folderPath": "game_assets/char_sprites/GHOSTED/Slash",
             "fps": 93.0,
             "hitbox": {
-                "h": 109,
-                "w": 99,
-                "x": 55,
-                "y": 26
+                "h": 87,
+                "w": 89,
+                "x": 61,
+                "y": 40
             },
             "slot": 5
         },

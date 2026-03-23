@@ -97,6 +97,7 @@ class EditorCanvasRenderer {
 
     void RenderEntities(SDL_Surface* screen, int canvasW, int toolbarH, int winH,
                         const Level& level, const EditorCamera& cam,
+                        EditorSurfaceCache& cache,
                         SpriteSheet* coins, SpriteSheet* enemies, int grid);
 
     void RenderPlayerMarker(SDL_Surface* screen, const Level& level,
